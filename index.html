@@ -58,7 +58,7 @@
         function keyDownSubmitter() {
             if (onlyrest)
                 window.location.href =
-                        "timer.html?title=&work-time=2&rest-time="
+                        "timer.html?title=&work-time=0.7777&rest-time="
                         + shi.humanTimeParser($("#rest-time-onlyrest").val(), { as: "m", to: "m", ignoreError: true })
                         + "&loop=1&note=&method=2&work-time-focused=false&rest-time-focused="
                         + document.getElementById("focus-rest-set-onlyrest").checked
@@ -115,115 +115,88 @@
 
     <div class="d-flex mx-auto justify-content-center align-items-center text-dark" id="main">
         <div id="logo-bar">
-            <div class="dropdown dropdown-default">
-                <a class="dropdown-toggle rest" href="#" role="button" id="controller-dropdown"
-                   data-toggle="dropdown"
-                   aria-haspopup="true" aria-expanded="false" data-offset="0, 21">
-                    <img src="res/icons/wnrIcon.png" width="18px" />
-                </a>
-                <div class="dropdown-menu" aria-labelledby="controller-dropdown">
-                    <div class="dropdown-header extreme-small">
-                        <script>document.write(i18n.__('menu'));</script>
-                    </div>
-                    <div class="dropdown-divider"></div>
-                    <a href="javascript:liberalTiming()" class="small dropdown-item">
-                        <script>document.write(i18n.__('positive'));</script>
-                    </a>
-                    <a href="javascript:onlyRest('in')" class="small dropdown-item">
-                        <script>document.write(i18n.__('onlyrest'));</script>
-                    </a>
-                    <a href="javascript:statistics()" class="small dropdown-item">
-                        <script>document.write(i18n.__('statistics'));</script>
-                    </a>
-                    <div class="dropdown-divider"></div>
-                    <a href="javascript:call('locker')" class="small dropdown-item">
-                        <script>document.write(i18n.__('locker'));</script>
-                    </a>
-                    <a href="javascript:call('settings')" class="small dropdown-item should-lock">
-                        <script>document.write(i18n.__('settings'));</script>
-                    </a>
-                    <a href="javascript:call('tourguide')" class="small dropdown-item">
-                        <script>document.write(i18n.__('tourguide'));</script>
-                    </a>
-                    <a href="javascript:call('about')" class="small dropdown-item">
-                        <script>document.write(i18n.__('info'));</script>
-                    </a>
-                </div>
-            </div>
+            <a class="rest" href="javascript:call('about')" role="button">
+                <img src="res/icons/wnrIcon.png" width="16.8px" />
+            </a>
         </div>
         <div id="statistics-back">
-            <a href="javascript:onlyRest('out')" class="work"><i class="iconfont icon-angle-left"></i></a>
+            <a href="javascript:onlyRest('out')" class="rest"><i class="iconfont icon-angle-left"></i></a>
             <script>
                 $('#statistics-back i').attr('title', i18n.__('back'));
             </script>
         </div>
         <div id="controller">
-            <a href="javascript:getHelp('guide/1-basic-usage')" class="small rest" id="get-help">
-                <i class="iconfont icon-info" id="helper"></i></a>&nbsp;&nbsp;
+            <a href="javascript:statistics()" class="small rest" id="statistics"><i
+                    class="iconfont icon-statistics"></i></a>&nbsp;&nbsp;
+            <a href="javascript:call('locker')" class="small rest" id="locker" style="display: none"><i
+                    class="iconfont icon-lock"></i></a><a href="javascript:call('settings')"
+                                                          class="small rest" id="settings"><i
+                class="iconfont icon-cog should-lock"></i></a><span id="mac-out">&nbsp;<span
+                class="controller-msg-spacing xx-small rest font-weight-bold">|</span>
             <a href="javascript:call('window-hide')" class="small rest" id="win-hider"><i
                     class="iconfont icon-dockpanel" id="window-hide"></i></a><span
-                id="no-use-space">&nbsp;&nbsp;</span>
+                    id="no-use-space">&nbsp;&nbsp;</span>
             <a href="javascript:call('window-minimize')" class="small rest"><i class="iconfont icon-minus"
                                                                                id="window-minimize"></i></a><span
-                class="should-lock">&nbsp;&nbsp;</span>
+                    class="should-lock">&nbsp;&nbsp;</span>
             <a href="javascript:call('window-close-chk')" class="small rest should-lock"><i
                     class="iconfont icon-close"
-                    id="exit"></i></a>
+                    id="exit"></i></a></span>
             <script>
-                $('#controller-dropdown').attr('title', i18n.__('menu'));
-                $('#get-help').attr('title', i18n.__('helper'))
+                $('#logo-bar').attr('title', i18n.__('info'));
                 $('#window-hide').attr('title', i18n.__('window-hide'));
                 $('#window-minimize').attr('title', i18n.__('window-minimize'));
                 $('#exit').attr('title', i18n.__('exit'));
                 $('#back-onlyrest').attr('title', i18n.__('back'));
-                if (process.platform == "darwin") $("#controller").css("display", "none");
+                $('#settings').attr('title', i18n.__('settings'));
+                $('#locker').attr('title', i18n.__('locker'));
+                $('#statistics').attr('title', i18n.__('statistics'));
+                if (process.platform === "darwin") {
+                    $("#mac-out").css("display", "none");
+                }
+                if (store.get("islocked")) $("#locker").css("display", "inline-block");
             </script>
         </div>
-        <div id="new-feature" class="container-fluid">
-            <div class="align-content-center small text-center">
-                <br />
-                <h4 id="new-feature-title" class="rest">Introduce Liberal Timing</h4>
-                <hr />
-                <p id="new-feature-description">How to start: Top Bar -> Operations -> Liberal Timing.</p>
-                <p id="new-feature-description-universal">Even more liberal timing experience brought to you, with
-                    integrated nap-taking notifications.
-                </p>
-                <hr />
-                <img id="new-feature-image" width="72%" />
-                <br />
-                <button type="button" class="btn btn-primary" width="233px" onclick="newFeatureClose()">
-                    <script>document.write(i18n.__('ok'));</script>
-                </button>
-            </div>
-        </div>
+        <div id="new-feature" class="container-fluid"></div>
         <div id="set-onlyrest" class="container-fluid">
             <div class="align-content-center">
                 <input name="rest-time-onlyrest" id="rest-time-onlyrest" type="text" onkeyup="allSet()"
-                       class="rest lead text-center" required />
+                       class="onlyRest lead text-center" required />
                 <br /><br />
                 <center>
                     <input id="focus-rest-set-onlyrest" type="checkbox" onchange="focusNotifier()" />
-                    <span class="focuser extreme-small rest text-left" id="focuser-onlyrest">
+                    <span class="focuser extreme-small onlyRest text-left" id="focuser-onlyrest">
                         <script>document.write(i18n.__('focus-mode-part-1') + "<br />" + i18n.__('focus-mode-part-2'))</script>
                     </span>
                     &nbsp;
                     <input id="focus-continueloop-set-onlyrest" type="checkbox"
                            onchange="onlyRestEdgeCaseSolution()" />
-                    <span id="continueloop" class="focuser extreme-small rest text-left">
+                    <span id="continueloop" class="focuser extreme-small onlyRest text-left">
                         <script>document.write(i18n.__('continueloop-part-1') + "<br />" + i18n.__('continueloop-part-2'))</script>
                     </span>
                 </center>
             </div>
             <br />
             <script>
-                $('#rest-time-onlyrest').attr('placeholder', i18n.__('rest-time'));
-                $('#rest-time-onlyrest').attr('title', i18n.__('rest-time') + i18n.__('what-can-be-here-index'));
+                $('#rest-time-onlyrest').attr('placeholder', i18n.__('only-rest-time'));
+                $('#rest-time-onlyrest').attr('title', i18n.__('only-rest-time') + i18n.__('what-can-be-here-index'));
                 $("#focus-rest-set-onlyrest").attr('title', i18n.__('full-screen-focus-mode-tip'));
                 $("#focus-continueloop-set-onlyrest").attr('title', i18n.__('continueloop-tip'));
                 $('#back-onlyrest').attr('title', i18n.__('back'));
             </script>
         </div>
         <div id="set" class="container-fluid">
+            <div class="extreme-small text-grey text-center" id="index-topbar">
+                <b>
+                    <script>document.write(i18n.__('dropdown-normal-timing'));</script>
+                </b>&nbsp;|
+                <a href="javascript:liberalTiming()">
+                    <script>document.write(i18n.__('dropdown-stopwatch-mode'));</script>
+                </a>&nbsp;|
+                <a href="javascript:onlyRest('in')">
+                    <script>document.write(i18n.__('dropdown-simple-countdown'));</script>
+                </a>
+            </div>
             <div class="dropdown dropdown-default" id="dropdown-tasks">
                 <a class="btn btn-outline-secondary dropdown-toggle" id="dropdown-menu-button"
                    data-toggle="dropdown"
@@ -303,7 +276,7 @@
                 $("#continueloop").attr('title', i18n.__('continueloop-tip'));
             </script>
         </div>
-        <div id="all-sum" class="small font-weight-bold text-muted text-center">
+        <div id="all-sum" class="extreme-small font-weight-bold text-muted text-center">
             <script>document.write(i18n.__('all-sum-part-1'));</script>
             <span id="all-sum-num">---</span>
             <script>document.write(i18n.__('all-sum-part-2'));</script>
@@ -321,13 +294,16 @@
                 <span id="rest-notify">
                     <script>document.write(i18n.__('focus-notify-resting'));</script>
                 </span>
+                <span id="only-rest-notify">
+                    <script>document.write(i18n.__('onlyrest'));</script>
+                </span>
                 <span id="notify-body">
                     <script>document.write(i18n.__('focus-notify-body'));</script>
                 </span>
             </div>
         </div>
-        <button id="bottom-btn" type="button" class="btn btn-primary" onclick="keyDownSubmitter()">
-            <script>document.write(i18n.__('submitter'));</script>
+        <button id="bottom-btn" type="button" class="btn btn-outline-primary" onclick="keyDownSubmitter()">
+            <i class="iconfont icon-start-timer"></i>&nbsp;<script>document.write(i18n.__('submitter'));</script>
         </button>
     </div>
 
@@ -378,6 +354,9 @@
                 onlyrest = true;
                 allSet();
                 $("#rest-time-onlyrest").focus();
+                $(".work").addClass("onlyRest");//onlyRest mode now has specific color
+                $(".rest").addClass("onlyRest");
+                $("#bottom-btn").addClass("btn-onlyRest")
             } else {
                 store.set("just-back", true);
                 if (onlyrest) window.location.reload();
@@ -403,12 +382,12 @@
         //switch default page to other pages
         if (!store.get("just-back"))
             switch (store.get("default-page")) {
-                case "1":
+                case 0:
                     break;
-                case "2":
+                case 1:
                     liberalTiming();
                     break;
-                case "3":
+                case 2:
                     onlyRest('in');
                     break;
                 default:
@@ -487,12 +466,15 @@
 
         function focusNotifier() {
             let workFocus = onlyrest ? false : document.getElementById("focus-work-set").checked;
-            let restFocus = onlyrest ? document.getElementById("focus-rest-set-onlyrest").checked : document.getElementById("focus-rest-set").checked;
-            if ((workFocus || restFocus) && (workFocus !== restFocus)) {
+            let restFocus = onlyrest ? false : document.getElementById("focus-rest-set").checked;
+            let onlyRestFocus = onlyrest ? document.getElementById("focus-rest-set-onlyrest").checked : false;
+            if ((workFocus || restFocus || onlyRestFocus) && ((workFocus !== restFocus) || onlyRestFocus)) {
                 if (workFocus) $("#work-notify").css("display", "inline");
                 else $("#work-notify").css("display", "none");
                 if (restFocus) $("#rest-notify").css("display", "inline");
                 else $("#rest-notify").css("display", "none");
+                if (onlyRestFocus) $("#only-rest-notify").css("display", "inline");
+                else $("#only-rest-notify").css("display", "none");
                 $("#focus-notify-box").css("display", "inline");
             } else {
                 $("#focus-notify-box").css("display", "none");
@@ -506,7 +488,8 @@
 
                 let s = document.createElement('style');
                 if (flag) s.innerText = "#focus-rest-set-onlyrest::after {color: #6c757d;}";
-                else s.innerText = "#focus-rest-set-onlyrest::after {color: #5490ea;}";
+                else if (!onlyrest) s.innerText = "#focus-rest-set-onlyrest::after {color: #5490ea;}";
+                else s.innerText = "#focus-rest-set-onlyrest::after {color: #a26ae5;}";
                 document.body.appendChild(s);
             }//to disable the focus button
 
@@ -517,7 +500,7 @@
                 $("#focuser-onlyrest").css("color", "#6c757d");
                 disableOnlyRestFocusButton(true);
             } else {
-                $("#focuser-onlyrest").css("color", "#5490ea");
+                $("#focuser-onlyrest").css("color", (!onlyrest) ? "#5490ea" : "#a26ae5");
                 disableOnlyRestFocusButton(false);
             }
         }
@@ -648,33 +631,33 @@
         setTimeout(function () {
             focusNotifier();
             if ((timingData.get("last-recorded-hours-left") > 0 || timingData.get("last-recorded-minutes-left") > 0)) {
-                if (timingData.get('last-recorded-hours-left') <= 0 && timingData.get("last-recorded-minutes-left") < 2)
-                    timingData.set("last-recorded-minutes-left", 2);
+                if (timingData.get('last-recorded-hours-left') <= 0 && timingData.get("last-recorded-minutes-left") < 1)
+                    timingData.set("last-recorded-minutes-left", 1);
                 if (timingData.get("last-recorded-state").method === 1) {
                     window.location.href =
                             "timer.html?title=" + timingData.get("last-recorded-state").title
                             + "&work-time=" + Number(timingData.get("last-recorded-hours-left") * 60 + timingData.get("last-recorded-minutes-left"))
                             + "&rest-time=" + timingData.get("last-recorded-state").restTime
-                            + "&loop=" + (store.get("infinity") ? 0 : timingData.get("last-recorded-state").loop)
+                            + "&loop=" + 1
                             + "&note=" + timingData.get("last-recorded-state").note
                             + "&method=1"
                             + "&work-time-focused=" + timingData.get("last-recorded-state").isWorkTimeFocused
                             + "&rest-time-focused=" + timingData.get("last-recorded-state").isRestTimeFocused
                             + "&restored=true"
-                            + "&times=" + Number(timingData.get("last-recorded-times-left"))
+                            + "&times=0"
                             + "&continueloop=false";
                 } else {
                     window.location.href =
                             "timer.html?title=" + timingData.get("last-recorded-state").title
                             + "&work-time=" + Number(timingData.get("last-recorded-hours-left") * 60 + timingData.get("last-recorded-minutes-left"))
                             + "&rest-time=" + Number(timingData.get("last-recorded-hours-left") * 60 + timingData.get("last-recorded-minutes-left"))
-                            + "&loop=" + (store.get("infinity") ? 0 : timingData.get("last-recorded-state").loop)
+                            + "&loop=" + 1
                             + "&note=" + timingData.get("last-recorded-state").note
                             + "&method=2"
                             + "&work-time-focused=" + timingData.get("last-recorded-state").isWorkTimeFocused
                             + "&rest-time-focused=" + timingData.get("last-recorded-state").isRestTimeFocused
                             + "&restored=true"
-                            + "&times=" + Number(timingData.get("last-recorded-times-left"))
+                            + "&times=1"
                             + "&continueloop=false";
                 }
             }

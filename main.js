@@ -1,55 +1,58 @@
 const {
     app, BrowserWindow, ipcMain, Tray, Menu,
     globalShortcut, dialog, shell, powerSaveBlocker,
-    powerMonitor, systemPreferences,
-    nativeTheme, screen, TouchBar
+    powerMonitor, nativeTheme, screen, TouchBar, Notification
 }
     = require('electron');
 const Store = require('electron-store');
 const path = require("path");
 let i18n = require("i18n");
-let Registry = require('winreg');
-const windowsRelease = require('windows-release');
 let cmdOrCtrl = require('cmd-or-ctrl');
-let AV = require('leancloud-storage');
 const { TouchBarLabel, TouchBarButton, TouchBarSpacer } = TouchBar;
 const notifier = require('node-notifier')
 const fetch = require('node-fetch');
+const winReleaseId = require('win-release-id');
 
 //keep a global reference of the objects, or the window will be closed automatically when the garbage collecting.
 let win = null, settingsWin = null, aboutWin = null, tourWin = null, floatingWin = null, externalTitleWin = null,
     tray = null, contextMenu = null, settingsWinContextMenu = null,
     resetAlarm = null, powerSaveBlockerId = null, sleepBlockerId = null,
-    isTimerWin = null, isWorkMode = null, isChinese = null,
+    isTimerWin = null, isWorkMode = null, isChinese = null, isFocused = true,
+    isOnlyRest = false, isPositiveTiming = false,
     timeLeftTip = null, trayTimeMsg = null, predefinedTasks = null,
     trayH = null, trayMin = null,
-    pushNotificationLink = null,
     workTimeFocused = false, restTimeFocused = false,
     fullScreenProtection = false,
-    leanId = null, leanKey = null,
     progress = -1, timeLeftOnBar = null,
     dockHide = false,
     newWindows = [], displays = null, hasMultiDisplays = null,
-    isLoose = false, isScreenLocked = false, isAlarmDialogClosed = true, isShadowless = false,
-    hasFloating = false, hasExternalTitle = false,
+    isLoose = false, isForceScreenLock = false, isScreenLocked = false,
+    isAlarmDialogClosed = true, isShadowless = false, isAlarmTipOn = false,
+    hasFloating = false, hasExternalTitle = false, hasGotSingleInstanceLock = false,
     kioskInterval = null,
     recorderDate = null, tempDate = null, yearAndMon = null, yearMonDay = null, year = null,
-    store = null, styleCache = null, statistics = null, timingData = null;
+    store = null, styleCache = null, statistics = null, timingData = null,
+    personalizationNotificationList = [[], [], [], [], [], []];
 
 let months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 let languageCodeList = ['en', 'zh-CN', 'zh-TW'], i//locale code
+let ratioList = [0.75, 0.9, 1, 1.1, 1.25], ratio = 1;//zoom ratio
+let notificationNamesList = ['work-time-end', 'work-time-end-msg', 'rest-time-end', 'rest-time-end-msg', 'all-task-end', 'all-task-end-msg'];
 
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')//to play sounds
 
 process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true';//prevent seeing this meaningless alert
 
+//use native notification, declare package.json/build/appId beforehand
+app.on('ready', () => app.setAppUserModelId('com.scrisstudio.wnr'));
+
 function createWindow() {
     //create the main window
     win = new BrowserWindow({
-        width: 376,
-        height: 444,
-        minWidth: 376,
-        minHeight: 420,
+        width: 360,
+        height: 459,
+        minWidth: 349,
+        minHeight: 444,
         frame: false,
         backgroundColor: "#fefefe",
         resizable: true,
@@ -65,7 +68,7 @@ function createWindow() {
         },
         titleBarStyle: "hiddenInset",
         icon: "./res/icons/wnrIcon.png"
-    });//optimize for cross platform
+    });//optimize for cross-platform
 
     //load index.html
     win.loadFile('index.html');
@@ -88,20 +91,25 @@ function createWindow() {
         app.exit(0);
     });
 
+    win.on('blur', () => {
+        isFocused = false;
+    });
+
+    win.on('focus', () => {
+        isFocused = true;
+    });
+
     //triggers for macos lock
     win.on('close', (event) => {
-        if ((store.get("islocked") || (fullScreenProtection && isTimerWin)) && (process.env.NODE_ENV !== "development")) {
-            event.preventDefault();
-            if (win != null)
-                notificationSolution("wnr", i18n.__('prevent-stop'), "non-important");
-        } else if ((process.platform === "darwin") && (process.env.NODE_ENV !== "development")) {
-            event.preventDefault();
-            if (!store.has("close-tip-darwin")) {
-                notificationSolution(i18n.__('close-tip-darwin'), i18n.__('close-tip-darwin-tip'), "normal");
-                store.set("close-tip-darwin", true);
+        if (hasGotSingleInstanceLock)
+            if (((store.get("islocked") || (fullScreenProtection && isTimerWin)) && (process.env.NODE_ENV !== "development"))) {
+                event.preventDefault();
+                if (win != null)
+                    notificationSolution("wnr", i18n.__('prevent-stop'), "non-important");
+            } else if ((process.platform === "darwin")) {
+                event.preventDefault();
+                windowCloseChk()
             }
-            win.hide();
-        }
     });
 
     win.on('show', () => {
@@ -142,8 +150,8 @@ function createWindow() {
 }
 
 function alarmSet() {
-    resetAlarm = setInterval(function () {
-        if (store.get('alarmtip') !== false && isAlarmDialogClosed) {
+    resetAlarm = setTimeout(function () {
+        if (store.get('alarmtip') !== false && isAlarmDialogClosed && isAlarmTipOn) {
             if (win != null) {
                 win.flashFrame(true);
                 win.show();
@@ -155,14 +163,16 @@ function alarmSet() {
                 type: "warning",
                 message: i18n.__('alarm-for-not-using-wnr-dialog-box-title'),
                 detail: i18n.__('alarm-for-not-using-wnr-dialog-box-content'),
-                buttons: [i18n.__('cancel'), i18n.__('ok')],
-                cancelId: 0
+                buttons: (process.platform !== "darwin") ? [i18n.__('cancel'), i18n.__('ok')] : [i18n.__('ok'), i18n.__('cancel')],
+                cancelId: (process.platform !== "darwin") ? 0 : 1, //buttons map different from darwin to other OSs
+                noLink: true
             }).then(function (response) {
                 isAlarmDialogClosed = true;
-                if (response.response !== 0) {
+                if (response.response !== ((process.platform !== "darwin") ? 1 : 0)) {
                     win.show();
                     win.moveTop();
                 }
+                alarmSet();
             });
         }
     }, 600000)//alarm you for using wnr
@@ -186,6 +196,7 @@ function setFullScreenMode(flag) {
             if (flag) {
                 kioskInterval = setInterval(function () {
                     if (fullScreenProtection && win != null) {
+                        forceScreenLockSolution();
                         win.show();
                         win.moveTop();
                         win.setKiosk(true);
@@ -236,8 +247,11 @@ function multiScreenSolution(mode) {
     if (app.isReady()) {
         displays = screen.getAllDisplays();
         hasMultiDisplays = (displays.length > 1);
+        let winBounds = win.getBounds();
+        //get the screen that contains the window
+        let distScreen = screen.getDisplayNearestPoint({ x: winBounds.x, y: winBounds.y });
         for (i in displays) {
-            if (displays[i].id !== screen.getPrimaryDisplay().id) {
+            if (displays[i].id !== distScreen.id) {
                 if (mode === "on") {
                     addScreenSolution(i, displays[i]);
                 } else {
@@ -321,11 +335,10 @@ app.on('will-quit', () => {
 //when created the app, triggers
 //some apis can be only used inside ready
 app.on('ready', () => {
-    require('dotenv').config({ path: path.join(__dirname, '.env') });
-
     require('@electron/remote/main').initialize();
 
     createWindow();
+    require("@electron/remote/main").enable(win.webContents);
 
     if (process.env.NODE_ENV === "portable") {
         store = new Store({ cwd: app.getPath('exe').replace("wnr.exe", ""), name: 'wnr-config' });//accept portable
@@ -380,8 +393,8 @@ app.on('ready', () => {
 
     timeLeftTip = i18n.__("time-left");//this will be used in this file frequently
 
-    const gotTheLock = app.requestSingleInstanceLock();
-    if (!gotTheLock) {
+    hasGotSingleInstanceLock = app.requestSingleInstanceLock();
+    if (!hasGotSingleInstanceLock) {
         console.log('Didn\'t get the lock, quitting');
         app.quit();
     } else {
@@ -406,15 +419,14 @@ app.on('ready', () => {
     hasMultiDisplays = screen.getAllDisplays().length > 1;
 
     if (process.platform === "win32") {
-        app.setAppUserModelId("com.scrisstudio.wnr");//set the appUserModelId to use notification in Windows
-        if (windowsRelease() === '7' && win != null) {
+        if (winReleaseId() === -1 && win != null) {
             let isNotified = store.has("windows-7-notification");
             if (isNotified === false) {
                 dialog.showMessageBox(win, {
                     title: " wnr",
-                    message: i18n.__('windows-7-notification'),
+                    message: i18n.__('old-windows-compatibility-notification'),
                     type: "warning",
-                    detail: i18n.__('windows-7-notification-msg'),
+                    detail: i18n.__('old-windows-compatibility-notification-msg'),
                 }).then(function () {
                     store.set("windows-7-notification", 1);
                 });
@@ -425,6 +437,7 @@ app.on('ready', () => {
     if (store.get("dock-hide") && process.platform === "darwin") dockHide = true;
 
     if (store.get("loose-mode")) isLoose = true;
+    if (store.get("force-screen-lock-mode")) isForceScreenLock = true;
 
     if (win != null) {
         if (store.get("top") === true) win.setAlwaysOnTop(true, "floating");
@@ -437,16 +450,76 @@ app.on('ready', () => {
 
     hotkeyInit();
 
+    if (store.has("zoom-ratio"))
+        ratio = ratioList[store.get("zoom-ratio")];
+
+    //initializers and compatibility database solutions
+    switch (store.get("dark-or-white")) {
+        case "auto-switch":
+            store.set("dark-or-white", 0);
+            break;
+        case "dark":
+            store.set("dark-or-white", 2);
+            break;
+        case "light":
+            store.set("dark-or-white", 1);
+            break;
+    }
+
     if (store.get('islocked') && win != null) {//locked mode
         win.closable = false;
+    }
+
+    if (store.has("default-page")) {
+        if (typeof store.get("default-page") === "string")
+            store.set("default-page", Number(store.get("default-page")) - 1);
+    }
+
+    if (store.has("nap-time")) {
+        let napTime = store.get("nap-time"),
+            nap = store.get("nap");
+        if (napTime <= 10) {
+            store.set("nap-time", 10);
+            store.set("nap-in-timing", nap ? 1 : 0);
+        } else if (napTime > 10 && napTime <= 15) {
+            store.set("nap-time", 15);
+            store.set("nap-in-timing", nap ? 2 : 0);
+        } else if (napTime > 15) {
+            store.set("nap-time", 20);
+            store.set("nap-in-timing", nap ? 3 : 0);
+        }
     }
 
     if (!store.has("reserved-record")) store.set("reserved-record", 0);
     if (!store.has("reserved-cnt")) store.set("reserved-cnt", 0);//reserved tasks init
 
     if (!store.has("disable-pausing-special")) store.set("disable-pausing-special", "all");
+    else {
+        let d = store.get("disable-pausing"),
+            ds = store.get("disable-pausing-special");
+        if (!d) store.set("disable-pause", 3);
+        else if (ds === "all") store.set("disable-pause", 0);
+        else if (ds === "work") store.set("disable-pause", 1);
+        else store.set("disable-pause", 2);
+    }
     if (!store.has("disable-skipping-special")) store.set("disable-skipping-special", "all");
+    else {
+        let d = store.get("disable-skipping"),
+            ds = store.get("disable-skipping-special");
+        if (!d) store.set("disable-skip", 3);
+        else if (ds === "all") store.set("disable-skip", 0);
+        else if (ds === "work") store.set("disable-skip", 1);
+        else store.set("disable-skip", 2);
+    }
     if (!store.has("disable-backing-special")) store.set("disable-backing-special", "all");
+    else {
+        let d = store.get("disable-backing"),
+            ds = store.get("disable-backing-special");
+        if (!d) store.set("disable-back", 3);
+        else if (ds === "all") store.set("disable-back", 0);
+        else if (ds === "work") store.set("disable-back", 1);
+        else store.set("disable-back", 2);
+    }
 
     if (store.has("no-check-time-end")) {
         store.set("no-check-work-time-end", store.get("no-check-time-end"));
@@ -454,9 +527,45 @@ app.on('ready', () => {
         store.delete("no-check-time-end");
     }
 
+    if (store.has("should-stop-locked"))
+        store.set("timing-after-locked", store.get("should-stop-locked"));
+
+    if (store.has("no-check-work-time-end") && store.get("when-work-time-end") !== 2) {
+        if (store.get("no-check-work-time-end"))
+            store.set("when-work-time-end", 1);
+        else store.set("when-work-time-end", 0);
+    }
+    if (store.has("no-check-rest-time-end") && store.get("when-rest-time-end") !== 2) {
+        if (store.get("no-check-rest-time-end"))
+            store.set("when-work-time-end", 1);
+        else store.set("when-work-time-end", 0);
+    }
+
+    if (store.has("sound")) {
+        if (store.get("sound") === true) store.set("sound", 4);
+        else if (store.get("sound") === false) store.set("sound", 0);
+    } else store.set("sound", 4);
+
     store.set("just-launched", true);
 
-    if (process.platform === "darwin") {
+    if (store.has("personalization-notification")) {
+        let tempString = "", tempInt = 0;
+        for (i in notificationNamesList) {
+            tempInt = 0;
+            if (store.has("personalization-notification." + notificationNamesList[i])) {
+                tempString = store.get("personalization-notification." + notificationNamesList[i]);
+                for (let j = 0; j < tempString.length - 1; j++) {
+                    if (tempString[j] === "/" && tempString[j + 1] === "/") {
+                        personalizationNotificationList[i].push(tempString.slice(tempInt, j));
+                        tempInt = j + 2;
+                    }
+                }
+                personalizationNotificationList[i].push(tempString.slice(tempInt, tempString.length));
+            }
+        }
+    }
+
+    if (process.platform === "darwin" && process.env.NODE_ENV !== "development") {
         if (!app.isInApplicationsFolder()) {
             notificationSolution(i18n.__('wrong-folder-notification-title'), i18n.__('wrong-folder-notification-content'), "normal");
         }
@@ -482,14 +591,19 @@ app.on('ready', () => {
 
     if (process.platform === "win32") tray = new Tray(path.join(__dirname, '\\res\\icons\\iconWin.ico'));
     else if (process.platform === "darwin") tray = new Tray(path.join(__dirname, '/res/icons/trayIconMacTemplate.png'));
-    if (tray != null) tray.setToolTip('wnr');
+    else if (process.platform === "linux") tray = new Tray(path.join(__dirname, '/res/icons/wnrIcon.png'));
+    try {
+        tray.setToolTip('wnr');
+    } catch (e) {
+        console.log(e);
+    }
     traySolution(false);
     macOSFullscreenSolution(false);
     isDarkMode();
     settingsWinContextMenuSolution();
 
     if (store.get("tray-time") !== false && process.platform === "darwin")
-        tray.setTitle(' ' + i18n.__('not-timing'));
+        tray.setTitle(' ' + i18n.__('not-timing-tray'));
 
     if (!store.has("predefined-tasks-created")) {
         store.set("predefined-tasks-created", true);
@@ -563,6 +677,7 @@ app.on('ready', () => {
             if (store.get("should-stop-locked") !== true) {
                 if (win != null) win.webContents.send('alter-start-stop', 'start');
             }
+            forceScreenLockSolution();
         }
         isScreenLocked = false;
     });
@@ -573,32 +688,9 @@ app.on('ready', () => {
     });
 
     if (process.platform === "win32") {
-        let regKey = new Registry({
-            hive: Registry.HKCU,
-            key: '\\Control Panel\\Desktop\\'
-        })
-        regKey.values(function (err, items) {
-            if (err)
-                return 'unset';
-            else {
-                for (let i = 0; i < items.length; i++) {
-                    if (items[i].name === 'UserPreferencesMask') {
-                        if (parseInt(items[i].value, 16).toString(2).charAt(21) === "1" && systemPreferences.isAeroGlassEnabled()) {
-                            isShadowless = false;
-                            styleCache.set("is-shadowless", false);
-                        } else {
-                            isShadowless = true;
-                            styleCache.set("is-shadowless", true);
-                        }
-                    }
-                }
-            }
-        })
+        isShadowless = true;
+        styleCache.set("is-shadowless", true);
     }//backport when shadow disabled
-
-    leanId = process.env.LEAN_ID ? process.env.LEAN_ID : null;
-    leanKey = process.env.LEAN_KEY ? process.env.LEAN_KEY : null;
-    if (process.env.NODE_ENV !== "development") leanCloudSolution();
 })
 
 function hotkeyInit() {
@@ -725,7 +817,7 @@ function showOrHide() {
         }
     if (win != null)
         if (floatingWin == null)
-            if (win.isVisible()) {
+            if (win.isVisible() && isFocused) {
                 win.hide();
             } else {
                 win.show()
@@ -734,22 +826,29 @@ function showOrHide() {
 
 // possible funcs: normal, hide-or-show
 function notificationSolution(title, body, func) {
-    notifier.notify({
-            sound: true,
-            timeout: 5,
-            title: title,
-            message: body,
-            silent: false,
-            icon: path.join(__dirname, app.isPackaged ? (process.platform === "darwin" ? '../app.asar.unpacked/res/icons/iconMac.png' : '../app.asar.unpacked/res/icons/wnrIcon.png') : "/res/icons/wnrIcon.png")
-        },
-        function () {
-            if (func === "hide-or-show") {
-                if (win != null) {
-                    win.show();
-                }
+    if (process.env.NODE_ENV === "portable" || !Notification.isSupported()) {
+        notifier.notify({
+                sound: true,
+                timeout: 5,
+                title: title,
+                message: body,
+                silent: false,
+                icon: path.join(__dirname, app.isPackaged ? (process.platform === "darwin" ? '../app.asar.unpacked/res/icons/iconMac.png' : '../app.asar.unpacked/res/icons/wnrIcon.png') : "/res/icons/wnrIcon.png")
+            },
+            function () {
+                if (func === "hide-or-show" && win != null) win.show();
             }
-        }
-    );
+        );
+    } else {//use native notification api
+        let notification = new Notification({ title: title, body: body });
+        notification.once("failed", (event, error) => {
+            console.log(event + error);
+        });
+        notification.once("click", (event) => {
+            if (func === "hide-or-show" && win != null) win.show();
+        });
+        notification.show();
+    }
 }
 
 function traySolution(isFullScreen) {
@@ -783,7 +882,7 @@ function traySolution(isFullScreen) {
                 type: 'separator'
             }, {
                 enabled: !isTimerWin,
-                label: i18n.__('locker'),
+                label: i18n.__('locker-mode'),
                 click: function () {
                     if (process.platform === "darwin" && win != null) win.show();
                     locker();
@@ -862,11 +961,12 @@ function traySolution(isFullScreen) {
             ]);
             if (tray != null) {
                 tray.removeAllListeners('click');
-                tray.on('click', function () {
-                    if (fullScreenProtection === false && process.platform === "win32") {
-                        showOrHide();
-                    }
-                });//tray
+                if (process.platform !== "linux")
+                    tray.on('click', function () {
+                        if (fullScreenProtection === false && process.platform === "win32") {
+                            showOrHide();
+                        }
+                    });//tray
                 tray.setContextMenu(contextMenu);
                 tray.setToolTip("wnr");
             }
@@ -886,8 +986,9 @@ function traySolution(isFullScreen) {
             if (tray != null) {
                 tray.removeAllListeners('click');
                 tray.setContextMenu(contextMenu);
-                tray.on('click', function () {
-                })
+                if (process.platform !== "linux")
+                    tray.on('click', function () {
+                    })
                 tray.setToolTip("wnr");
             }
         }
@@ -943,67 +1044,74 @@ function macOSFullscreenSolution(isFullScreen) {
                     }]
                 }, {
                     label: i18n.__('operations'),
-                    submenu: [{
-                        enabled: !isTimerWin,
-                        label: i18n.__('onlyrest'),
-                        click: function () {
-                            if (win != null) {
-                                win.loadFile('index.html');
-                                win.webContents.once('did-finish-load', function () {
-                                    win.webContents.send("onlyrest");
-                                });
+                    submenu: [
+                        {
+                            label: i18n.__('show-or-hide'), click: function () {
+                                showOrHide()
                             }
-                            if (process.platform === "darwin" && win != null) win.show();
-                        }
-                    }, {
-                        enabled: !isTimerWin,
-                        label: i18n.__('positive'),
-                        click: function () {
-                            if (win != null) {
-                                win.loadFile('index.html');
-                                win.webContents.once('did-finish-load', function () {
-                                    win.webContents.send("positive");
-                                });
+                        }, {
+                            enabled: isTimerWin,
+                            label: i18n.__('mini-mode'),
+                            click: function () {
+                                if (win != null) win.webContents.send("remote-control-msg", "enter");
                             }
-                            if (process.platform === "darwin" && win != null) win.show();
-                        }
-                    }, {
-                        enabled: !isTimerWin,
-                        label: i18n.__('statistics'),
-                        click: function () {
-                            if (win != null) win.loadFile('statistics.html');
-                        }
-                    }, {
-                        enabled: (!store.get('islocked')) && (!isTimerWin),
-                        label: i18n.__('settings'),
-                        click: function () {
-                            settings('normal');
-                        }
-                    }, {
-                        enabled: !isTimerWin,
-                        label: i18n.__('locker'),
-                        click: function () {
-                            locker();
-                        }
-                    }, {
-                        label: i18n.__('tourguide'),
-                        enabled: !isTimerWin,
-                        click: function () {
-                            tourguide();
-                        }
-                    }, {
-                        type: 'separator'
-                    }, {
-                        label: i18n.__('website'),
-                        click: function () {
-                            shell.openExternal('https://getwnr.com/');
-                        }
-                    }, {
-                        label: i18n.__('github'),
-                        click: function () {
-                            shell.openExternal('https://github.com/RoderickQiu/wnr/');
-                        }
-                    }]
+                        }, {
+                            type: 'separator'
+                        }, {
+                            enabled: !isTimerWin,
+                            label: i18n.__('onlyrest'),
+                            click: function () {
+                                if (win != null) {
+                                    win.loadFile('index.html');
+                                    win.webContents.once('did-finish-load', function () {
+                                        win.webContents.send("onlyrest");
+                                    });
+                                }
+                                if (process.platform === "darwin" && win != null) win.show();
+                            }
+                        }, {
+                            enabled: !isTimerWin,
+                            label: i18n.__('positive'),
+                            click: function () {
+                                if (win != null) {
+                                    win.loadFile('index.html');
+                                    win.webContents.once('did-finish-load', function () {
+                                        win.webContents.send("positive");
+                                    });
+                                }
+                                if (process.platform === "darwin" && win != null) win.show();
+                            }
+                        }, {
+                            enabled: !isTimerWin,
+                            label: i18n.__('statistics'),
+                            click: function () {
+                                if (win != null) win.loadFile('statistics.html');
+                            }
+                        }, {
+                            enabled: (!store.get('islocked')) && (!isTimerWin),
+                            label: i18n.__('settings'),
+                            click: function () {
+                                settings('normal');
+                            }
+                        }, {
+                            enabled: !isTimerWin,
+                            label: i18n.__('locker-mode'),
+                            click: function () {
+                                locker();
+                            }
+                        }, {
+                            type: 'separator'
+                        }, {
+                            label: i18n.__('website'),
+                            click: function () {
+                                shell.openExternal('https://getwnr.com/');
+                            }
+                        }, {
+                            label: i18n.__('github'),
+                            click: function () {
+                                shell.openExternal('https://github.com/RoderickQiu/wnr/');
+                            }
+                        }]
                 }];
             else
                 template = [{
@@ -1023,10 +1131,7 @@ function macOSFullscreenSolution(isFullScreen) {
                         label: i18n.__('settings'),
                         enabled: false
                     }, {
-                        label: i18n.__('locker'),
-                        enabled: false
-                    }, {
-                        label: i18n.__('tourguide'),
+                        label: i18n.__('locker-mode'),
                         enabled: false
                     }, {
                         type: 'separator'
@@ -1041,6 +1146,30 @@ function macOSFullscreenSolution(isFullScreen) {
             let osxMenu = Menu.buildFromTemplate(template);
             Menu.setApplicationMenu(osxMenu)
         }
+    }
+}
+
+function forceScreenLockSolution() {
+    if (isLoose || !fullScreenProtection || !isForceScreenLock || store.get("should-stop-locked") !== true) {
+        return false;
+    }
+    try {
+        if (process.platform === 'win32') {
+            require('child_process').execSync('rundll32 user32.dll,LockWorkStation');
+            return true;
+        } else if (process.platform === 'darwin') {
+            // to be implemented
+            return false;
+        } else if (process.platform === 'linux') {
+            // for distros with systemd
+            require('child_process').execSync('loginctl lock-session $(cat /proc/self/sessionid) --no-ask-password');
+            return true;
+        } else {
+            return false;
+        }
+    } catch (e) {
+        console.log(e);
+        return false;
     }
 }
 
@@ -1060,6 +1189,45 @@ function settingsWinContextMenuSolution() {
     }
 }
 
+function getWindowsReleaseVersion() {
+    const os = require('os');
+    const release = os.release();
+    if (release.startsWith('10.0.2')) {
+        return 11;
+    } else if (release.startsWith('10.0.1')) {
+        return 10;
+    } else if (release.startsWith('6.2') || release.startsWith('6.3')) {
+        return 8;
+    } else if (release.startsWith('6.1')) {
+        return 7;
+    } else return 0;
+}
+
+ipcMain.on("open-notification-settings", function (event, msg) {
+    switch (process.platform) {
+        case "win32":
+            if (getWindowsReleaseVersion() >= 10) shell.openExternal('ms-settings:notifications');
+            else dialog.showMessageBox(win, {
+                title: " wnr",
+                type: "info",
+                message: (getWindowsReleaseVersion() === 8) ?
+                    i18n.__("open-notification-settings-windows-8-tip") :
+                    i18n.__("open-notification-settings-windows-7-tip")
+            });
+            break;
+        case "darwin":
+            shell.openExternal("x-apple.systempreferences:com.apple.preference.notifications");
+            break;
+        case "linux":
+            dialog.showMessageBox(win, {
+                title: " wnr",
+                type: "info",
+                message: i18n.__("open-notification-settings-linux-tip")
+            });
+            break;
+    }
+})
+
 ipcMain.on("settings-win-context-menu", function (event, message) {
     if (settingsWin != null) {
         try {
@@ -1069,51 +1237,6 @@ ipcMain.on("settings-win-context-menu", function (event, message) {
         }
     }
 })
-
-function leanCloudSolution() {
-    if (leanId != null && leanKey != null)
-        try {
-            AV.init({
-                appId: leanId,
-                appKey: leanKey
-            });
-
-            let pushNotifications = new AV.Query('notifications');
-            pushNotifications.descending('createdAt');
-            pushNotifications.limit(3);
-
-            pushNotifications.find().then(function (notifications) {
-                notifications.forEach(function (notification) {
-                    let targetVersion = notification.get('targetVersion').replace("v", "");
-                    if (targetVersion == null || targetVersion === "" || targetVersion === require("./package.json").version.toString()) {
-                        let content = (store.get("i18n").indexOf("zh") !== -1) ? notification.get('notificationContentChinese') : notification.get('notificationContentEnglish');
-                        let title = (store.get("i18n").indexOf("zh") !== -1) ? notification.get('notificationTitleChinese') : notification.get('notificationTitleEnglish');
-                        let link = (store.get("i18n").indexOf("zh") !== -1) ? notification.get('notificationLinkChinese') : notification.get('notificationLinkEnglish');
-                        let id = notification.get('objectId');
-                        if (!store.get(id) && win != null) {
-                            pushNotificationLink = link;
-                            store.set(id, true);
-                            dialog.showMessageBox(win, {
-                                title: " wnr",
-                                type: "warning",
-                                message: title,
-                                detail: content,
-                                buttons: [i18n.__('cancel'), i18n.__('ok')],
-                                cancelId: 0
-                            }).then(function (response) {
-                                if (response.response !== 0)
-                                    if (pushNotificationLink !== "" && pushNotificationLink != null)
-                                        shell.openExternal(pushNotificationLink);
-                            });
-                        }
-                    }
-                })
-            })
-        } catch (e) {
-            console.log(e);
-        }
-    else console.log("No LeanCloud key provided, skipped.")
-}
 
 function isDarkMode() {
     if (app.isReady()) {
@@ -1158,22 +1281,76 @@ function statisticsWriter() {
     statisticsInitializer();
 
     if (isTimerWin) {
-        if (isWorkMode) {
+        if (isOnlyRest) {
+            let onlyRestTimePeriod = Math.floor((tempDate.getTime() - recorderDate.getTime()) / 60000);
+            recorderDate = tempDate;
+            statistics.set(yearMonDay, {
+                "workTime": statistics.has(yearMonDay) ? statistics.get(yearMonDay).workTime : 0,
+                "restTime": statistics.has(yearMonDay) ? statistics.get(yearMonDay).restTime : 0,
+                "positive": statistics.has(yearMonDay) ? statistics.get(yearMonDay).positive : 0,
+                "onlyRest": statistics.has(yearMonDay) ? statistics.get(yearMonDay).onlyRest + onlyRestTimePeriod : onlyRestTimePeriod,
+                "sum": statistics.has(yearMonDay) ? statistics.get(yearMonDay).sum + onlyRestTimePeriod : onlyRestTimePeriod
+            });
+            statistics.set(yearAndMon, {
+                "workTime": statistics.has(yearAndMon) ? statistics.get(yearAndMon).workTime : 0,
+                "restTime": statistics.has(yearAndMon) ? statistics.get(yearAndMon).restTime : 0,
+                "positive": statistics.has(yearAndMon) ? statistics.get(yearAndMon).positive : 0,
+                "onlyRest": statistics.has(yearAndMon) ? statistics.get(yearAndMon).onlyRest + onlyRestTimePeriod : onlyRestTimePeriod,
+                "sum": statistics.has(yearAndMon) ? statistics.get(yearAndMon).sum + onlyRestTimePeriod : onlyRestTimePeriod
+            });
+            statistics.set(year, {
+                "workTime": statistics.has(year) ? statistics.get(year).workTime : 0,
+                "restTime": statistics.has(year) ? statistics.get(year).restTime : 0,
+                "positive": statistics.has(year) ? statistics.get(year).positive : 0,
+                "onlyRest": statistics.has(year) ? statistics.get(year).onlyRest + onlyRestTimePeriod : onlyRestTimePeriod,
+                "sum": statistics.has(year) ? statistics.get(year).sum + onlyRestTimePeriod : onlyRestTimePeriod,
+            });
+        } else if (isPositiveTiming) {
+            let positiveTimePeriod = Math.floor((tempDate.getTime() - recorderDate.getTime()) / 60000);
+            recorderDate = tempDate;
+            statistics.set(yearMonDay, {
+                "workTime": statistics.has(yearMonDay) ? statistics.get(yearMonDay).workTime : 0,
+                "restTime": statistics.has(yearMonDay) ? statistics.get(yearMonDay).restTime : 0,
+                "positive": statistics.has(yearMonDay) ? statistics.get(yearMonDay).positive + positiveTimePeriod : positiveTimePeriod,
+                "onlyRest": statistics.has(yearMonDay) ? statistics.get(yearMonDay).onlyRest : 0,
+                "sum": statistics.has(yearMonDay) ? statistics.get(yearMonDay).sum + positiveTimePeriod : positiveTimePeriod
+            });
+            statistics.set(yearAndMon, {
+                "workTime": statistics.has(yearAndMon) ? statistics.get(yearAndMon).workTime : 0,
+                "restTime": statistics.has(yearAndMon) ? statistics.get(yearAndMon).restTime : 0,
+                "positive": statistics.has(yearAndMon) ? statistics.get(yearAndMon).positive + positiveTimePeriod : positiveTimePeriod,
+                "onlyRest": statistics.has(yearAndMon) ? statistics.get(yearAndMon).onlyRest : 0,
+                "sum": statistics.has(yearAndMon) ? statistics.get(yearAndMon).sum + positiveTimePeriod : positiveTimePeriod
+            });
+            statistics.set(year, {
+                "workTime": statistics.has(year) ? statistics.get(year).workTime : 0,
+                "restTime": statistics.has(year) ? statistics.get(year).restTime : 0,
+                "positive": statistics.has(year) ? statistics.get(year).positive + positiveTimePeriod : positiveTimePeriod,
+                "onlyRest": statistics.has(year) ? statistics.get(year).onlyRest : 0,
+                "sum": statistics.has(year) ? statistics.get(year).sum + positiveTimePeriod : positiveTimePeriod,
+            });
+        } else if (isWorkMode) {
             let workTimePeriod = Math.floor((tempDate.getTime() - recorderDate.getTime()) / 60000);
             recorderDate = tempDate;
             statistics.set(yearMonDay, {
                 "workTime": statistics.has(yearMonDay) ? statistics.get(yearMonDay).workTime + workTimePeriod : workTimePeriod,
                 "restTime": statistics.has(yearMonDay) ? statistics.get(yearMonDay).restTime : 0,
+                "positive": statistics.has(yearMonDay) ? statistics.get(yearMonDay).positive : 0,
+                "onlyRest": statistics.has(yearMonDay) ? statistics.get(yearMonDay).onlyRest : 0,
                 "sum": statistics.has(yearMonDay) ? statistics.get(yearMonDay).sum + workTimePeriod : workTimePeriod
             });
             statistics.set(yearAndMon, {
                 "workTime": statistics.has(yearAndMon) ? statistics.get(yearAndMon).workTime + workTimePeriod : workTimePeriod,
                 "restTime": statistics.has(yearAndMon) ? statistics.get(yearAndMon).restTime : 0,
+                "positive": statistics.has(yearAndMon) ? statistics.get(yearAndMon).positive : 0,
+                "onlyRest": statistics.has(yearAndMon) ? statistics.get(yearAndMon).onlyRest : 0,
                 "sum": statistics.has(yearAndMon) ? statistics.get(yearAndMon).sum + workTimePeriod : workTimePeriod
             });
             statistics.set(year, {
                 "workTime": statistics.has(year) ? statistics.get(year).workTime + workTimePeriod : workTimePeriod,
                 "restTime": statistics.has(year) ? statistics.get(year).restTime : 0,
+                "positive": statistics.has(year) ? statistics.get(year).positive : 0,
+                "onlyRest": statistics.has(year) ? statistics.get(year).onlyRest : 0,
                 "sum": statistics.has(year) ? statistics.get(year).sum + workTimePeriod : workTimePeriod
             });
         } else {
@@ -1182,16 +1359,22 @@ function statisticsWriter() {
             statistics.set(yearMonDay, {
                 "workTime": statistics.has(yearMonDay) ? statistics.get(yearMonDay).workTime : 0,
                 "restTime": statistics.has(yearMonDay) ? statistics.get(yearMonDay).restTime + restTimePeriod : restTimePeriod,
+                "positive": statistics.has(yearMonDay) ? statistics.get(yearMonDay).positive : 0,
+                "onlyRest": statistics.has(yearMonDay) ? statistics.get(yearMonDay).onlyRest : 0,
                 "sum": statistics.has(yearMonDay) ? statistics.get(yearMonDay).sum + restTimePeriod : restTimePeriod
             });
             statistics.set(yearAndMon, {
                 "workTime": statistics.has(yearAndMon) ? statistics.get(yearAndMon).workTime : 0,
                 "restTime": statistics.has(yearAndMon) ? statistics.get(yearAndMon).restTime + restTimePeriod : restTimePeriod,
+                "positive": statistics.has(yearAndMon) ? statistics.get(yearAndMon).positive : 0,
+                "onlyRest": statistics.has(yearAndMon) ? statistics.get(yearAndMon).onlyRest : 0,
                 "sum": statistics.has(yearAndMon) ? statistics.get(yearAndMon).sum + restTimePeriod : restTimePeriod
             });
             statistics.set(year, {
                 "workTime": statistics.has(year) ? statistics.get(year).workTime : 0,
                 "restTime": statistics.has(year) ? statistics.get(year).restTime + restTimePeriod : restTimePeriod,
+                "positive": statistics.has(year) ? statistics.get(year).positive : 0,
+                "onlyRest": statistics.has(year) ? statistics.get(year).onlyRest : 0,
                 "sum": statistics.has(year) ? statistics.get(year).sum + restTimePeriod : restTimePeriod
             });
         }
@@ -1220,11 +1403,11 @@ ipcMain.on('force-long-focus-request', function () {
             type: "warning",
             message: i18n.__("force-long-focus-request"),
             detail: i18n.__("force-long-focus-request-tip"),
-            buttons: [i18n.__('cancel'), i18n.__('ok')],
-            cancelId: 0,
+            buttons: (process.platform !== "darwin") ? [i18n.__('cancel'), i18n.__('ok')] : [i18n.__('ok'), i18n.__('cancel')],
+            cancelId: (process.platform !== "darwin") ? 0 : 1,//buttons map different from darwin to other OSs
             noLink: true
         }).then(function (index) {
-            if (index.response === 1) {
+            if (index.response === ((process.platform !== "darwin") ? 1 : 0)) {
                 win.webContents.send("force-long-focus-granted");
             }
         });
@@ -1257,7 +1440,11 @@ function focusSolution() {
     }
 }
 
-function nonFocusSolution() {
+ipcMain.on("only-rest-fullscreen", function () {
+    focusSolution()
+})
+
+function nonFocusSolution(mode) {
     if (win != null) {
         multiScreenSolution("off");
         setFullScreenMode(false);
@@ -1274,6 +1461,7 @@ function nonFocusSolution() {
                 floating();
             }
             win.hide();
+        } else if ((mode === "work" && store.get("when-work-time-end") === 2) || (mode === "rest" && store.get("when-rest-time-end") === 2)) {
         } else {
             win.show();
             win.center();
@@ -1290,7 +1478,8 @@ function noCheckTimeSolution(mode) {
     } else {
         if (store.get("top") !== true) {
             win.setAlwaysOnTop(false);//cancel unnecessary always-on-top
-            if (!hasFloating) win.moveTop();
+            if ((mode === "work" && store.get("when-work-time-end") === 2) || (mode === "resdt" && store.get("when-rest-time-end") !== 2)) {
+            } else if (!hasFloating) win.moveTop();
         }
         if (dockHide) app.dock.hide();
     }
@@ -1300,6 +1489,26 @@ function noCheckTimeSolution(mode) {
 function timeEndDialogDispose(mode) {
     noCheckTimeSolution(mode);
     win.webContents.send('warning-closed');
+}
+
+function personliazationNotificationSolution(i) {
+    let title = i18n.__(notificationNamesList[i]), msg = i18n.__(notificationNamesList[i + 1]), random = 0;
+    if (personalizationNotificationList[i].length > 0) {
+        random = Math.floor(Math.random() * personalizationNotificationList[i].length);
+        title = personalizationNotificationList[i][random];
+        if (personalizationNotificationList[i + 1].at(random) !== undefined) {
+            msg = personalizationNotificationList[i + 1][random];
+        } else if (personalizationNotificationList[i + 1].length > 0) {
+            random = Math.floor(Math.random() * personalizationNotificationList[i + 1].length);
+            msg = personalizationNotificationList[i + 1][random];
+        }
+    } else {
+        if (personalizationNotificationList[i + 1].length > 0) {
+            random = Math.floor(Math.random() * personalizationNotificationList[i + 1].length);
+            msg = personalizationNotificationList[i + 1][random];
+        }
+    }
+    return [title, msg];
 }
 
 ipcMain.on('warning-giver-workend', function () {
@@ -1312,13 +1521,12 @@ ipcMain.on('warning-giver-workend', function () {
         if (restTimeFocused === true) {
             focusSolution();
         } else {
-            nonFocusSolution();
+            nonFocusSolution("work");
         }
-        if (isScreenLocked) {
-            notificationSolution((store.has("personalization-notification.work-time-end") ?
-                    store.get("personalization-notification.work-time-end") : i18n.__('work-time-end')),
-                (store.has("personalization-notification.work-time-end-msg") ?
-                    store.get("personalization-notification.work-time-end-msg") : i18n.__('work-time-end-msg')), "normal");
+        let personal = personliazationNotificationSolution(0);
+        if (isScreenLocked || store.get("when-work-time-end") === 2) {
+            notificationSolution(personal[0],
+                personal[1], "normal");
         }
 
         if (store.get("no-check-work-time-end")) {
@@ -1329,11 +1537,9 @@ ipcMain.on('warning-giver-workend', function () {
                 if (process.platform !== "darwin" || (process.platform === "darwin" && restTimeFocused))
                     dialog.showMessageBox(win, {
                         title: " wnr",
-                        message: (store.has("personalization-notification.work-time-end") ?
-                            store.get("personalization-notification.work-time-end") : i18n.__('work-time-end')),
+                        message: personal[0],
                         type: "info",
-                        detail: (store.has("personalization-notification.work-time-end-msg") ?
-                                store.get("personalization-notification.work-time-end-msg") : i18n.__('work-time-end-msg'))
+                        detail: personal[1]
                             + " " + (hasMultiDisplays ? "\r" + i18n.__('has-multi-displays') : ""),
                     }).then(function () {
                         timeEndDialogDispose("work");
@@ -1341,11 +1547,9 @@ ipcMain.on('warning-giver-workend', function () {
                     });
                 else dialog.showMessageBox({
                     title: " wnr",
-                    message: (store.has("personalization-notification.work-time-end") ?
-                        store.get("personalization-notification.work-time-end") : i18n.__('work-time-end')),
+                    message: personal[0],
                     type: "info",
-                    detail: (store.has("personalization-notification.work-time-end-msg") ?
-                            store.get("personalization-notification.work-time-end-msg") : i18n.__('work-time-end-msg'))
+                    detail: personal[1]
                         + " " + (hasMultiDisplays ? "\r" + i18n.__('has-multi-displays') : ""),
                 }).then(function () {
                     timeEndDialogDispose("work");
@@ -1367,13 +1571,12 @@ ipcMain.on('warning-giver-restend', function () {
         if (workTimeFocused === true) {
             focusSolution();
         } else {
-            nonFocusSolution();
+            nonFocusSolution("rest");
         }
-        if (isScreenLocked) {
-            notificationSolution((store.has("personalization-notification.rest-time-end") ?
-                    store.get("personalization-notification.rest-time-end") : i18n.__('rest-time-end')),
-                (store.has("personalization-notification.rest-time-end-msg") ?
-                    store.get("personalization-notification.rest-time-end-msg") : i18n.__('rest-time-end-msg')), "normal");
+        let personal = personliazationNotificationSolution(2);
+        if (isScreenLocked || store.get("when-rest-time-end") === 2) {
+            notificationSolution(personal[0],
+                personal[1], "normal");
         }
         if (store.get("no-check-rest-time-end")) {
             noCheckTimeSolution("rest");
@@ -1383,11 +1586,9 @@ ipcMain.on('warning-giver-restend', function () {
                 if (process.platform !== "darwin" || (process.platform === "darwin" && workTimeFocused))
                     dialog.showMessageBox(win, {
                         title: " wnr",
-                        message: (store.has("personalization-notification.rest-time-end") ?
-                            store.get("personalization-notification.rest-time-end") : i18n.__('rest-time-end')),
+                        message: personal[0],
                         type: "info",
-                        detail: (store.has("personalization-notification.rest-time-end-msg") ?
-                                store.get("personalization-notification.rest-time-end-msg") : i18n.__('rest-time-end-msg'))
+                        detail: personal[1]
                             + " " + (hasMultiDisplays ? "\r" + i18n.__('has-multi-displays') : ""),
                     }).then(function () {
                         timeEndDialogDispose("rest");
@@ -1395,11 +1596,9 @@ ipcMain.on('warning-giver-restend', function () {
                     })
                 else dialog.showMessageBox({
                     title: " wnr",
-                    message: (store.has("personalization-notification.rest-time-end") ?
-                        store.get("personalization-notification.rest-time-end") : i18n.__('rest-time-end')),
+                    message: personal[0],
                     type: "info",
-                    detail: (store.has("personalization-notification.rest-time-end-msg") ?
-                            store.get("personalization-notification.rest-time-end-msg") : i18n.__('rest-time-end-msg'))
+                    detail: personal[1]
                         + " " + (hasMultiDisplays ? "\r" + i18n.__('has-multi-displays') : ""),
                 }).then(function () {
                     timeEndDialogDispose("rest");
@@ -1432,11 +1631,10 @@ ipcMain.on('warning-giver-all-task-end', function () {
             traySolution(false);
             win.setFocusable(true);
         }
+        let personal = personliazationNotificationSolution(4);
         if (isScreenLocked) {
-            notificationSolution((store.has("personalization-notification.all-task-end") ?
-                    store.get("personalization-notification.all-task-end") : i18n.__('all-task-end')),
-                (store.has("personalization-notification.all-task-end-msg") ?
-                    store.get("personalization-notification.all-task-end-msg") : i18n.__('all-task-end-msg')), "normal");
+            notificationSolution(personal[0],
+                personal[1], "normal");
         }
         if (store.get("no-check-time-end")) {
             win.maximizable = false;
@@ -1453,11 +1651,9 @@ ipcMain.on('warning-giver-all-task-end', function () {
             setTimeout(function () {
                 dialog.showMessageBox(win, {
                     title: " wnr",
-                    message: (store.has("personalization-notification.all-task-end") ?
-                        store.get("personalization-notification.all-task-end") : i18n.__('all-task-end')),
+                    message: personal[0],
                     type: "info",
-                    detail: (store.has("personalization-notification.all-task-end-msg") ?
-                        store.get("personalization-notification.all-task-end-msg") : i18n.__('all-task-end-msg')),
+                    detail: personal[1],
                 }).then(function () {
                     win.loadFile('index.html');//automatically back
                     setFullScreenMode(false);
@@ -1488,7 +1684,6 @@ ipcMain.on('warning-giver-all-task-end', function () {
                     }
                 })
             }, 1000);
-        alarmSet()
     }
 })
 
@@ -1572,11 +1767,11 @@ function windowCloseChk() {
             title: " wnr",
             message: i18n.__('window-close-dialog-box-title'),
             type: "warning",
-            detail: i18n.__('window-close-dialog-box-content'),
-            checkboxLabel: i18n.__('window-close-dialog-box-chk'),
-            checkboxChecked: false
+            buttons: (process.platform !== "darwin") ? [i18n.__('cancel'), i18n.__('ok')] : [i18n.__('ok'), i18n.__('cancel')],
+            cancelId: (process.platform !== "darwin") ? 0 : 1, //buttons map different from darwin to other OSs
+            noLink: true
         }).then(function (msger) {
-            if (msger.checkboxChecked) {
+            if (msger.response === ((process.platform !== "darwin") ? 1 : 0)) {
                 statisticsWriter();
                 multiScreenSolution("off");
 
@@ -1586,7 +1781,12 @@ function windowCloseChk() {
             }
         })
     } else {
-        app.quit()
+        statisticsWriter();
+        multiScreenSolution("off");
+
+        setTimeout(function () {
+            app.exit(0);
+        }, 500);
     }
 }
 
@@ -1635,13 +1835,21 @@ ipcMain.on('window-minimize', function () {
     if (win != null) win.minimize()
 })
 
+ipcMain.on('enter-only-rest', function () {
+    isOnlyRest = true;
+})
+
+ipcMain.on('enter-positive-timing', function () {
+    isPositiveTiming = true;
+})
+
 function about() {
     if (app.isReady()) {
         if (win != null) {
             aboutWin = new BrowserWindow({
                 parent: win,
-                width: 720,
-                height: 450,
+                width: Math.floor(720 * ratio),
+                height: Math.floor(520 * ratio),
                 backgroundColor: isDarkMode() ? "#191919" : "#fefefe",
                 resizable: false,
                 maximizable: false,
@@ -1658,6 +1866,7 @@ function about() {
                     spellcheck: false
                 },
             });
+            require("@electron/remote/main").enable(aboutWin.webContents);
             aboutWin.loadFile("about.html");
             win.setAlwaysOnTop(true, "floating");
             aboutWin.setAlwaysOnTop(true, "floating");
@@ -1694,10 +1903,9 @@ function settings(mode) {
         if (win != null && settingsWin == null) {
             settingsWin = new BrowserWindow({
                 parent: win,
-                width: isChinese ? 780 : 888,
-                height: 453,
+                width: Math.floor((isChinese ? 420 : 472) * ratio),
+                height: Math.floor(636 * ratio),
                 backgroundColor: isDarkMode() ? "#191919" : "#fefefe",
-                resizable: false,
                 maximizable: false,
                 minimizable: false,
                 frame: false,
@@ -1712,10 +1920,11 @@ function settings(mode) {
                 },
                 titleBarStyle: "hidden"
             });
+            require("@electron/remote/main").enable(settingsWin.webContents);
             if (mode === 'locker') store.set("settings-goto", "locker");
             else if (mode === 'predefined-tasks') store.set("settings-goto", "predefined-tasks");
             else store.set("settings-goto", "normal");
-            settingsWin.loadFile("settings.html");
+            settingsWin.loadFile("preferences.html");
             if (process.env.NODE_ENV !== "development") {
                 win.setAlwaysOnTop(true, "floating");
                 settingsWin.setAlwaysOnTop(true, "floating");
@@ -1745,6 +1954,7 @@ function settings(mode) {
                 }
                 settingsWin = null;
                 isLoose = !!store.get("loose-mode");
+                isForceScreenLock = !!store.get("force-screen-lock-mode");
             })
             if (!store.get("settings-experience")) {
                 store.set("settings-experience", true);
@@ -1763,8 +1973,8 @@ function tourguide() {
         if (win != null && tourWin == null) {
             tourWin = new BrowserWindow({
                 parent: win,
-                width: 400,
-                height: 720,
+                width: Math.floor(400 * ratio),
+                height: Math.floor(720 * ratio),
                 backgroundColor: isDarkMode() ? "#191919" : "#fefefe",
                 resizable: false,
                 maximizable: false,
@@ -1781,6 +1991,7 @@ function tourguide() {
                     spellcheck: false
                 },
             });
+            require("@electron/remote/main").enable(tourWin.webContents);
             tourWin.loadFile("tourguide.html");
             win.setAlwaysOnTop(true, "floating");
             tourWin.setAlwaysOnTop(true, "floating");
@@ -1825,8 +2036,6 @@ ipcMain.on('locker', locker);
 ipcMain.on('locker-passcode', function (event, message) {
     let lockerMessage = null;
     if (message === "wrong-passcode") lockerMessage = i18n.__('locker-settings-input-tip-wrong-password');
-    if (message === "lock-mode-on") lockerMessage = i18n.__('locker-settings-status') + i18n.__('on') + i18n.__('period-symbol');
-    if (message === "lock-mode-off") lockerMessage = i18n.__('locker-settings-status') + i18n.__('off') + i18n.__('period-symbol');
     if (message === "not-same-password") lockerMessage = i18n.__('locker-settings-not-same-password');
     if (message === "empty") lockerMessage = i18n.__('locker-settings-empty-password');
     if (settingsWin != null)
@@ -1835,18 +2044,46 @@ ipcMain.on('locker-passcode', function (event, message) {
             message: i18n.__('locker'),
             type: "warning",
             detail: lockerMessage
-        }).then(function () {
-            if (message === "lock-mode-on" || message === "lock-mode-off") {
-                if (settingsWin != null) settingsWin.close();
-                settingsWin = null;
-                relaunchSolution()
-            }
         })
+})
+
+ipcMain.on("relaunch-dialog", function (event, message) {
+    dialog.showMessageBox(win, {
+        title: " wnr",
+        type: "warning",
+        message: i18n.__("relaunch-tip"),
+        buttons: [i18n.__('ok')],
+        noLink: true
+    }).then(function (index) {
+        try {
+            store.set('just-relaunched', true);
+        } catch (e) {
+            console.log(e);
+        }
+        relaunchSolution();
+    });
 })
 
 ipcMain.on("open-external-title-win", function (event, message) {
     let title = message.title, notes = message.notes;
     externalTitle(title, notes);
+})
+
+ipcMain.on("modify-external-title-win", function (event, message) {
+    if (externalTitleWin != null)
+        externalTitleWin.webContents.send('send-title', {
+            title: message.title,
+            notes: message.notes
+        });
+})
+
+ipcMain.on("sync-timer-win-title", function (event, message) {
+    if (win != null && isTimerWin) {
+        win.webContents.send('sync-title', {
+            title: message.title,
+            notes: message.notes
+        })
+    }
 })
 
 ipcMain.on("external-title-resize", function (event, message) {
@@ -1868,8 +2105,8 @@ function externalTitle(title, notes) {
             if (!hasExternalTitle || externalTitleWin == null) {
                 hasExternalTitle = true;
                 externalTitleWin = new BrowserWindow({
-                    width: 160,
-                    height: 84,
+                    width: Math.floor(160 * ratio),
+                    height: Math.floor(84 * ratio),
                     x: styleCache.has("external-title-axis") ? styleCache.get("external-title-axis").x : 33,
                     y: styleCache.has("external-title-axis") ? styleCache.get("external-title-axis").y : 33,
                     backgroundColor: isDarkMode() ? "#191919" : "#fefefe",
@@ -1918,8 +2155,8 @@ function floating() {
             if (!hasFloating || floatingWin == null) {
                 hasFloating = true;
                 floatingWin = new BrowserWindow({
-                    width: 84,
-                    height: 84,
+                    width: Math.floor(84 * ratio),
+                    height: Math.floor(84 * ratio),
                     x: styleCache.has("floating-axis") ? styleCache.get("floating-axis").x : 33,
                     y: styleCache.has("floating-axis") ? styleCache.get("floating-axis").y : 33,
                     backgroundColor: isDarkMode() ? "#191919" : "#fefefe",
@@ -1949,6 +2186,9 @@ function floating() {
                 floatingWin.on('closed', () => {
                     floatingWin = null;
                     hasFloating = false;
+                    if (win != null && process.platform === "darwin") {
+                        win.show();
+                    }
                 });
                 floatingWin.on('move', () => {
                     styleCache.set("floating-axis", {
@@ -2037,9 +2277,9 @@ ipcMain.on("timer-win", function (event, message) {
         if (aboutWin != null) aboutWin.close();
         if (tourWin != null) tourWin.close();
         if (settingsWin != null) settingsWin.close();
-        if (resetAlarm) {
+        if (resetAlarm)
             clearTimeout(resetAlarm);
-        }
+        isAlarmTipOn = false;
         powerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension');//prevent wnr to be suspended when timing
         isTimerWin = true;
         traySolution();
@@ -2055,7 +2295,10 @@ ipcMain.on("timer-win", function (event, message) {
         statisticsWriter();
 
         if (dockHide) app.dock.hide();
+        if (resetAlarm)
+            clearTimeout(resetAlarm);
         alarmSet();
+        isAlarmTipOn = true;
         if (powerSaveBlockerId)
             if (powerSaveBlocker.isStarted(powerSaveBlockerId))
                 powerSaveBlocker.stop(powerSaveBlockerId);
@@ -2069,8 +2312,11 @@ ipcMain.on("timer-win", function (event, message) {
         multiScreenSolution("off");
 
         if (store.get("tray-time") !== false && process.platform === "darwin")
-            tray.setTitle(' ' + i18n.__('not-timing'));
+            tray.setTitle(' ' + i18n.__('not-timing-tray'));
         else tray.setTitle("");
+
+        isOnlyRest = false;
+        isPositiveTiming = false;
     }
 })
 
@@ -2099,4 +2345,12 @@ ipcMain.on("floating-conversation", function (event, message) {
     } else if (message.topic === "stop-sync") {
         if (floatingWin != null) floatingWin.webContents.send("floating-stop-sync", message.val);
     }
+})
+
+ipcMain.on("zoom-ratio-change", function (event, message) {
+    ratio = ratioList[message];
+    win.setMinimumSize(Math.floor(349 * ratio), Math.floor(444 * ratio));
+    win.setSize(Math.floor(360 * ratio), Math.floor(459 * ratio), true);
+    settingsWin.setSize(Math.floor((isChinese ? 420 : 472) * ratio), Math.floor(636 * ratio), true);
+    win.webContents.send('zoom-ratio-feedback');
 })

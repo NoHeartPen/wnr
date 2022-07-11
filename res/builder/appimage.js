@@ -7,37 +7,38 @@ const config = {
     "directories": {
         "output": "packaged/"
     },
-    "win": {
+    "linux": {
         "asarUnpack": [
-            "./node_modules/node-notifier/vendor/**",
-            "./res/icons/**"
+            "./node_modules/node-notifier/vendor/**"
         ],
         "target": [
-            {
-                "target": "7z",
-                "arch": ["x64", "ia32"]
-            }
+            "AppImage"
         ],
-        "icon": "res/icons/iconWin.ico",
+        "icon": "res/icons/wnrIcon.png",
         "files": [
             "**/*",
             //! to exclude
             "!res/icons/*Mac*",
+            "!res/icons/*Win*",
             "!res/icons/*.psd",
-            "!designs/**",
+            "!./node_modules/node-notifier/vendor/snoreToast/**",
+            "!./node_modules/node-notifier/vendor/notifu/**",
             "!./node_modules/node-notifier/vendor/mac.noindex/**"
         ],
-        "artifactName": "${productName}-${version}-Win-${arch}.${ext}"
+        "category": "Utility"
+    },
+    "appImage": {
+        "artifactName": "${productName}-${version}-Linux.${ext}"
     },
     "publish": null
 }
 
 builder.build({
-    targets: Platform.WINDOWS.createTarget(),
+    targets: Platform.LINUX.createTarget(),
     config,
 })
     .then(m => {
-        console.log("Done!")
+        console.log(m)
     })
     .catch(e => {
         console.error(e)

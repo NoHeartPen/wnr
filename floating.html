@@ -17,9 +17,9 @@
 <body>
     <script src="supporter.js"></script>
     <div class="d-flex mx-auto justify-content-center align-items-center text-dark" id="main">
-        <div id="timer" class="justify-content-center align-content-center text-center">
+        <div id="floating-container" class="justify-content-center align-content-center text-center">
             <div id="floating-unhover">
-                <div id="time-left" class="text-center h4 work">--</div>
+                <div id="time-left" class="text-center h6 work">--</div>
                 <div id="time-left-msg" class="text-center small work">
                     <script>document.write(i18n.__('min-left'));</script>
                 </div>
@@ -65,35 +65,12 @@
     <script>
         var isMiniMode = true;
 
-        if (process.platform === "darwin") {
-            $("#floating-recover").css("display", "none");
-            $("#floating-close").css("display", "none");
-        } else {
-            $("#stopper-spacing").css("display", "none");
-        }
-        if (store.get('disable-pausing') === true) {
-            $("#stopper").remove();
-        }
-        if (store.get('disable-skipping') === true) {
-            $("#floating-skipper").remove();
-        }
-        if (store.get('disable-backing') === true) {
-            $("#floating-back").remove();
-        }
-
         function hover() {
             $("#floating-unhover").css("opacity", "0");
         }
 
         function unhover() {
             $("#floating-unhover").css("opacity", "1");
-        }
-
-        function semihover() {
-            $("#floating-unhover").css("opacity", "0");
-            setTimeout(function () {
-                $("#floating-unhover").css("opacity", "1");
-            }, 500);
         }
 
         let isWorking = true;
@@ -121,14 +98,45 @@
             $("#floating-back").css("display", "none");
         }
 
+        let timeLeft = $("#time-left"), floatingBottomBar = $('#floating-bottom-bar');
+        let lastTimeHasHours = null;
+        let h = " " + i18n.__("h"), min = " " + i18n.__("min");
+
+        function getStyledTimeLeft(minute) {
+            if (lastTimeHasHours == null) {
+                lastTimeHasHours = Math.floor(minute / 60) > 0;
+                if (!lastTimeHasHours) {
+                    timeLeft.removeClass("h6");
+                    timeLeft.addClass("h4");
+                }
+            }
+            let hour = Math.floor(minute / 60);
+            if (hour > 0) {
+                if (!lastTimeHasHours) {
+                    timeLeft.removeClass("h4");
+                    timeLeft.addClass("h6");
+                    lastTimeHasHours = true;
+                }
+                return hour + h + (minute - hour * 60) + min;
+            } else {
+                if (lastTimeHasHours) {
+                    timeLeft.removeClass("h6");
+                    timeLeft.addClass("h4");
+                    lastTimeHasHours = false;
+                }
+                if (minute === 0) return "<1" + min;
+                return minute + min;
+            }
+        }
+
         let method = 1;
         ipc.on("floating-time-left", function (event, message) {
             isWorking = message.isWorking;
             if (isWorking) $("#stopper").html("<i class='iconfont icon-pause' aria-hidden='true'></i>");
             else $("#stopper").html("<i class='iconfont icon-play' aria-hidden='true'></i>");
 
-            $("#time-left").text(message.minute === 0 ? '<1' : message.minute);
-            $('#floating-bottom-bar').css("width", message.percentage + "%");
+            timeLeft.text(getStyledTimeLeft(message.minute));
+            floatingBottomBar.css("width", message.percentage + "%");
 
             if (message.method === 2 && method === 1) {
                 $(".work").addClass("rest");
@@ -147,8 +155,8 @@
             if (message.method === 3 && method !== 3) {
                 $(".work").addClass("positive");
                 $('#floating-bottom-bar').css("display", "none");
-                $('#floating-skipper').css("display", "none");
                 $("#time-left-msg").text(i18n.__('min-already'));
+                method = 3;
             }
 
             ipc.removeAllListeners('floating-stop-sync');
@@ -157,7 +165,35 @@
                 if (isWorking) $("#stopper").html("<i class='iconfont icon-pause' aria-hidden='true'></i>");
                 else $("#stopper").html("<i class='iconfont icon-play' aria-hidden='true'></i>");
             });
+
+            if (method !== 3) {
+                if (store.get('disable-pausing') === true) {
+                    if (!((store.get('disable-pausing-special') === "work" && method !== 1) ||
+                            (store.get('disable-pausing-special') === "rest" && method !== 2)))
+                        $("#stopper").css("display", "none");
+                    else $("#stopper").css("display", "inline-block");
+                } else $("#stopper").css("display", "inline-block");
+                if (store.get('disable-skipping') === true) {
+                    if (!((store.get('disable-skipping-special') === "work" && method !== 1) ||
+                            (store.get('disable-skipping-special') === "rest" && method !== 2)))
+                        $("#floating-skipper").css("display", "none");
+                    else $("#floating-skipper").css("display", "inline-block");
+                } else $("#floating-skipper").css("display", "inline-block");
+                if (store.get('disable-backing') === true) {
+                    if (!((store.get('disable-backing-special') === "work" && method !== 1) ||
+                            (store.get('disable-backing-special') === "rest" && method !== 2)))
+                        $("#floating-back").css("display", "none");
+                    else $("#floating-back").css("display", "inline-block");
+                } else $("#floating-back").css("display", "inline-block");
+            }
         });
+
+        if (process.platform === "darwin") {
+            $("#floating-recover").css("display", "none");
+            $("#floating-close").css("display", "none");
+        } else {
+            $("#stopper-spacing").css("display", "none");
+        }
     </script>
     <script src="renderer.js"></script>
 </body>

@@ -27,38 +27,51 @@
         <div id="time-bar" class="text-muted"></div>
         <div id="time-bar-macos" class="text-muted"></div><!-- time-bar for systems -->
         <div id="controller">
-            <a href="javascript:getHelp('guide/1-basic-usage')" class="small work"><i class="iconfont icon-info"
-                                                                                      id="helper"></i></a>&nbsp;&nbsp;
-            <a href="javascript:floatingOpener()" class="small work"><i class="iconfont icon-suoxiao"
-                                                                        id="mini-mode"></i></a>&nbsp;&nbsp;
+            <a href="javascript:floatingOpener()" class="small work" id="mini-mode"><i class="iconfont icon-suoxiao"
+            ></i></a>&nbsp;&nbsp;
             <a href="javascript:call('window-hide')" class="small work" id="win-hider"><i
                     class="iconfont icon-dockpanel" id="window-hide"></i></a><span
                 id="no-use-space">&nbsp;&nbsp;</span>
-            <a href="javascript:call('window-minimize')" class="small work"><i class="iconfont icon-minus"
-                                                                               id="window-minimize"></i></a><span
+            <a href="javascript:call('window-minimize')" class="small work" id="window-minimize"><i
+                    class="iconfont icon-minus"
+            ></i></a><span
                 class="should-lock">&nbsp;&nbsp;</span>
-            <a href="javascript:call('window-close-chk')" class="small work should-lock"><i
-                    class="iconfont icon-close"
-                    id="exit"></i></a>
+            <a href="javascript:call('window-close-chk')" class="small work should-lock"
+               id="exit"><i
+                    class="iconfont icon-close"></i></a>
             <script>
                 $('#helper').attr('title', i18n.__('helper'));
-                $('#mini-mode').attr('title', i18n.__('mini-mode'));
+                $('#mini-mode').attr('title', i18n.__('mini-mode-msg'));
                 $('#window-hide').attr('title', i18n.__('window-hide'));
                 $('#window-minimize').attr('title', i18n.__('window-minimize'));
                 $('#exit').attr('title', i18n.__('exit'));
             </script>
         </div>
         <div id="timer" class="justify-content-center align-content-center text-center">
+            &nbsp;&nbsp;
             <input type="text" id="title" class="text-center h4" maxlength="14"
-                   style="transform: translateX(5px); font-size: 0.4rem" />
-            <a href="javascript:openExternalTitleWin()" id="external" class="work"><i
-                    class="iconfont icon-external-link"></i></a><br />
+                   style="transform: translateX(5px); font-size: 0.4rem"
+                   oninput="modifyExternalTitleWin()" /><a href="javascript:openExternalTitleWin()"
+                                                           id="external" class="work"><i
+                class="iconfont icon-external-link"></i></a><br />
             <input type="text" id="notes" class="text-center small text-muted" maxlength="39"
-                   style="font-size: 0.4rem" /><br id="notes-space" />
+                   style="font-size: 0.4rem" oninput="modifyExternalTitleWin()" /><br id="notes-space" />
             <script>
                 function openExternalTitleWin() {
                     ipc.send("open-external-title-win", { title: $("#title").val(), notes: $("#notes").val() });
                 }
+
+                function modifyExternalTitleWin() {
+                    ipc.send("modify-external-title-win", { title: $("#title").val(), notes: $("#notes").val() });
+                }
+
+                ipc.on("sync-title", function (event, message) {
+                    $("#title").val(message.title);
+                    $("#notes").val(message.notes);
+
+                    titleNodeResizer();
+                    notesNodeResizer();
+                });
 
                 $("#external").attr('title', i18n.__('external-title'));
                 $("#title").attr('title', i18n.__('title-edit-msg'));
@@ -83,7 +96,7 @@
                         $("#title").css("font-size", "0.4rem");
                     } else {
                         $("#external").css("display", "inline-block");
-                        $("#title").css("font-size", "1.5rem");
+                        $("#title").css("font-size", "1rem");
                     }
                     titleNode.parentNode.removeChild(n);
                     titleNode.style.width = spanW + 'px'
@@ -106,7 +119,7 @@
                         $("#notes").css("font-size", "0.4rem");
                     } else {
                         $("#notes-space").css("display", "block");
-                        $("#notes").css("font-size", "inherit");
+                        $("#notes").css("font-size", "0.7rem");
                     }
                     notesNode.parentNode.removeChild(n);
                     notesNode.style.width = spanW + 'px'
@@ -126,11 +139,17 @@
                     class="iconfont icon-pause"></i></a></div>
             <br />
             <div class="text-center text-muted" id="more-options">
-                <a href="javascript:backcheck()" class="text-muted"><i class="iconfont icon-previous"
-                                                                       id="back-index"></i></a>
+                <a href="javascript:backcheck()" class="text-muted" id="back-index"><i class="iconfont icon-previous"
+                ></i><span
+                        class="focuser extreme-small controller-msg">
+                    <script>document.write(i18n.__('back'));</script>
+                </span></a>
                 <span id="skipper-space" class="should-lock">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
                 <a href="javascript:skipper()" class="text-muted" id="skipper-container">
-                    <i class="iconfont icon-fastforward" id="skipper"></i>
+                    <span
+                            class="focuser extreme-small controller-msg">
+                    <script>document.write(i18n.__('skip'));</script>
+                </span><i class="iconfont icon-fastforward" id="skipper"></i>
                 </a>
                 <br />
             </div>
@@ -138,8 +157,8 @@
                    onkeydown="if(event.keyCode === 13) recheck($('#passcode-rechecker').val());" />
             <br />
             <div class="text-center lead" id="backer">
-                <a href="javascript:backcheck()" class="text-muted"><i class="iconfont icon-previous"
-                                                                       id="backindex2"></i></a>
+                <a href="javascript:backcheck()" class="text-muted" id="backindex2"><i class="iconfont icon-previous"
+                ></i></a>
             </div>
             <div class="text-center text-muted" id="only-one">
                 <h3>
@@ -162,7 +181,7 @@
                 $('#backindex2').attr('title', i18n.__('back-index'));
                 $('#stopper').attr('title', i18n.__('start-or-stop'))
                 $('#backer').css('display', 'none');
-                $('#skipper').attr('title', i18n.__('skipper'));
+                $('#skipper-container').attr('title', i18n.__('skipper'));
                 if (process.platform === "darwin") $("#controller").css("display", "none");
             </script>
         </div>
@@ -195,21 +214,6 @@
         if (process.platform === "darwin") {
             $("#win-hider").css("display", "none");
             $("#no-use-space").css("display", "none");
-        }
-        if (store.get('localtime') === false) {
-            $("#time-bar").remove();
-            $("#time-bar-macos").remove();
-        }
-        if (store.get('disable-pausing') === true && (store.get("disable-pausing-special") === "work" || store.get("disable-pausing-special") === "all")) {
-            $("#stopper").css("display", "none");
-        }
-        if (store.get('disable-skipping') === true && (store.get("disable-skipping-special") === "work" || store.get("disable-skipping-special") === "all")) {
-            $("#skipper").css("display", "none");
-            $("#skipper-space").css("display", "none");
-        }
-        if (store.get('disable-backing') === true && (store.get("disable-backing-special") === "work" || store.get("disable-backing-special") === "all")) {
-            $("#back-index").css("display", "none");
-            $("#skipper-space").css("display", "none");
         }
         $("#only-one").css("display", "none");
         $("#passcode-rechecker").css("display", "none");
@@ -305,6 +309,13 @@
             if (e.keyCode === 13) backer();
         }
 
+        function longBreakGetter() {
+            if (store.has("long-break")) {
+                let choices = [0, 3, 5, 7, 10, 15, 20];
+                return choices[store.get("long-break")];
+            } else return 0;
+        }
+
         let $_GET = (function () {
             let url = window.document.location.href.toString();
             let u = url.split("?");
@@ -321,7 +332,8 @@
             }
         })();
 
-        var title = decodeURI($_GET['title']),
+        var
+                title = decodeURI($_GET['title']),
                 note = decodeURI($_GET['note']),
                 workTime = decodeURI($_GET['work-time']) * 60000,
                 restTime = decodeURI($_GET['rest-time']) * 60000,//use ms
@@ -335,9 +347,13 @@
                 h = i18n.__('h'),
                 min = i18n.__('min'),
                 s = i18n.__('s'),
-                player = document.createElement("audio"),//alert player
                 stopperTimeout = null,
-                pausingTimeout = null;
+                pausingTimeout = null,
+                isLongRest = false,
+                isFirstTimeOnlyRest = decodeURI($_GET['work-time']) === "0.7777",
+                isOnlyRest = isFirstTimeOnlyRest;
+
+        if (isOnlyRest) ipc.send("enter-only-rest");
 
         ipc.send('focus-mode-settings', { workTimeFocused: workTimeFocused, restTimeFocused: restTimeFocused });
 
@@ -354,27 +370,36 @@
             method: methodFromStart
         });
 
-        timingData.set("last-recorded-times-left", times);
-
         let $nowTiming = $("#now-timing"), $bottomBar = $("#bottom-bar"), $timeBar = $("#time-bar"),
                 $timeBarMacOS = $("#time-bar-macos");//cache frequently using doms
 
         //method = 3 means liberal / positive timer
         if (methodFromStart === 3) {
             $(".work").addClass("positive");
-            $("#skipper-container").css("display", "none");
-            $("#skipper-space").css("display", "none");
             $("#bottom-bar").css("display", "none");
 
             timingData.set("last-recorded-minutes-left", 0);
             timingData.set("last-recorded-hours-left", 0);
-            timingData.set("last-recorded-times-left", 0);
+
+            ipc.send("enter-positive-timing");
+        }
+
+        if (store.get('disable-pausing') === true && (store.get("disable-pausing-special") === "work" || store.get("disable-pausing-special") === "all")) {
+            $("#stopper").css("display", "none");
+        }
+        if (store.get('disable-skipping') === true && (store.get("disable-skipping-special") === "work" || store.get("disable-skipping-special") === "all")) {
+            $("#skipper-container").css("display", "none");
+            $("#skipper-space").css("display", "none");
+        }
+        // special dealing for enabling back for infinity mode and liberal timing
+        if (store.get('disable-backing') === true && (store.get("disable-backing-special") === "work" || store.get("disable-backing-special") === "all") && methodFromStart !== 3 && loop !== 0) {
+            $("#back-index").css("display", "none");
+            $("#skipper-space").css("display", "none");
         }
 
         if ((loop !== Math.floor(loop)) || (loop < 1 && loop !== 0) || (workTime < 5000) || (restTime < 5000) || isNaN(workTime) || isNaN(restTime) || isNaN(loop)) {//use ms for 1s
             timingData.set("last-recorded-minutes-left", 0);
             timingData.set("last-recorded-hours-left", 0);
-            timingData.set("last-recorded-times-left", 0);
             $("#timer").html("<p class='text-center text-muted lead' id='timer-error'>" + i18n.__('not-enough') + "<br/><a href='javascript:backer()' class='work'>" + i18n.__('back') + "</a></p>");
             $("#timer").css("width", "75%");
             isTimerWindow(false);
@@ -382,7 +407,6 @@
         } else if (workTime > 86400000 || restTime > 86400000 || (workTime + restTime) * loop > 86400000) {
             timingData.set("last-recorded-minutes-left", 0);
             timingData.set("last-recorded-hours-left", 0);
-            timingData.set("last-recorded-times-left", 0);
             $("#timer").html("<p class='text-center text-muted lead' id='timer-error'>" + i18n.__('too-long') + "<br/><a href='javascript:backer()' class='work'>" + i18n.__('back') + "</a></p>");
             $("#timer").css("width", "75%");
             isTimerWindow(false);
@@ -414,10 +438,6 @@
                 if (!store.get("no-check-time-end")) stopperTimeout = setTimeout(stopper, 500);
                 ipc.once('warning-closed', function () {
                     stopper();
-                    if (!(store.get('disable-skipping') === true && ((method === 2 ? store.get("disable-skipping-special") === "rest" : store.get("disable-skipping-special") === "work") || store.get("disable-skipping-special") === "all"))) {
-                        $("#skipper-container").css("display", "inline");
-                        if (!store.get("islocked")) $("#skipper-space").css("display", "inline");
-                    }
                 });
                 if (store.get("fullscreen-experience") !== true) {
                     $("#fullscreen-experience-tip").css("display", "inline-block");
@@ -441,7 +461,7 @@
                     hours,
                     method = 1,
                     isClockWorking = 1,
-                    moreThanOneMin = (method === 1 && workTime > 60000) ? 1 : 0,
+                    moreThanOneMin = ((method === 1 && workTime > 60000) || isOnlyRest && restTime > 60000) ? 1 : 0,
                     lastRecordedMinutesLeft = -1,
                     lastRecordedHoursLeft = -1,
                     systemName = process.platform,
@@ -452,7 +472,8 @@
                     napInterval = 0,
                     lastNapSecond = 0,
                     canStop = true,
-                    stopCounter = 0;
+                    stopCounter = 0,
+                    isBothSkipperAndBackerEnabled = true;
 
             if (store.get("nap") || methodFromStart === 3) {
                 shouldNap = true;
@@ -511,7 +532,7 @@
             function stopAndCount() {
                 stopper();
                 if (!wasCounting) stopCounter++;
-                if (stopCounter) $("#stop-count").text(" | " + i18n.__("already-paused") + " " + stopCounter.toString() + " " + i18n.__("time(s)"));
+                if (stopCounter) $("#stop-count").text(((loop === 0 || continueLoop) ? "" : " | ") + i18n.__("already-paused") + " " + stopCounter.toString() + " " + i18n.__("time(s)"));
             }
 
             function stopper() {
@@ -544,40 +565,49 @@
             }
 
             function warningGiver(isend) {
+                if (isFirstTimeOnlyRest) {
+                    isFirstTimeOnlyRest = false;
+                    if (restTimeFocused) ipc.send("only-rest-fullscreen");
+                    return;
+                }
                 if ((method === 1 && workTime > 60000) || (method === 2 && restTime > 60000)) moreThanOneMin = 1;
                 else moreThanOneMin = 0;//if less than 1 min, prevent less than 1min warning
                 lastRecordedMinutesLeft = -1, lastRecordedHoursLeft = -1, lastRecordedProgress = 0.00;
                 canStop = false;
                 timingData.set("last-recorded-minutes-left", -1);
                 timingData.set("last-recorded-hours-left", -1);
-                if (store.get("sound") !== false) {
-                    if (isend !== 0) {
-                        player.src = path.join(__dirname, "\\res\\sound\\" + (store.has("time-end-sound") ? store.get("time-end-sound") : "tick") + ".mp3");
-                    } else {
-                        player.src = path.join(__dirname, "\\res\\sound\\" + (store.has("all-end-sound") ? store.get("all-end-sound") : "piano") + ".mp3");
-                    }
-                    player.loop = true;
-                    player.play();
-                    if ((method === 2 && store.get("no-check-work-time-end")) || (method === 1 && store.get("no-check-rest-time-end"))) {
-                        $("#skipper").css("display", "none");
+                let player = document.createElement('audio');
+                amplifyMedia(player, amplifierList[store.get("sound")]);
+                if (isend !== 0) {
+                    player.src = path.join(__dirname, "\\res\\sound\\" + (store.has("time-end-sound") ? store.get("time-end-sound") : "tick") + ".mp3");
+                } else {
+                    player.src = path.join(__dirname, "\\res\\sound\\" + (store.has("all-end-sound") ? store.get("all-end-sound") : "piano") + ".mp3");
+                }
+                player.loop = true;
+                player.play();
+                if ((method === 2 && store.get("no-check-work-time-end")) || (method === 1 && store.get("no-check-rest-time-end"))) {
+                    $("#skipper-container").css("display", "none");
+                    $("#skipper-space").css("display", "none");
+                    setTimeout(function () {
+                        player.loop = false;
                         if (!(store.get('disable-skipping') === true && ((method === 2 ? store.get("disable-skipping-special") === "rest" : store.get("disable-skipping-special") === "work") || store.get("disable-skipping-special") === "all"))) {
-                            setTimeout(function () {
-                                player.loop = false;
-                                $("#skipper").css("display", "inline");
-                            }, 3000);
                             $("#skipper-container").css("display", "inline");
-                            if (!store.get("islocked")) $("#skipper-space").css("display", "inline");
+                            if ((!store.get("islocked")) && (!(store.get('disable-backing') === true && ((method === 2 ? store.get("disable-backing-special") === "rest" : store.get("disable-backing-special") === "work") || store.get("disable-backing-special") === "all")))) $("#skipper-space").css("display", "inline");
+                            else $("#skipper-space").css("display", "none");
+                        } else {
+                            $("#skipper-container").css("display", "none");
+                            $("#skipper-space").css("display", "none");
                         }
-                        canStop = true;
-                    } else {
-                        setTimeout(function () {
-                            if (isClockWorking) stopper();
-                        }, 1500);
-                        setTimeout(function () {
-                            player.loop = false;
-                        }, 20000);
-                    }
-                }//different sound for different circumstances
+                    }, 3000);
+                    canStop = true;
+                } else {
+                    setTimeout(function () {
+                        if (isClockWorking) stopper();
+                    }, 1000);
+                    setTimeout(function () {
+                        player.loop = false;
+                    }, 20000);
+                }
                 if (isend === 0) ipc.send('warning-giver-all-task-end');
                 else {
                     if (isend === 1) ipc.send('warning-giver-workend');
@@ -588,11 +618,14 @@
                         player.loop = false;
                         player.pause();
 
-
                         if (!isClockWorking) stopper();
                         if (!(store.get('disable-skipping') === true && ((method === 2 ? store.get("disable-skipping-special") === "rest" : store.get("disable-skipping-special") === "work") || store.get("disable-skipping-special") === "all"))) {
                             $("#skipper-container").css("display", "inline");
-                            if (!store.get("islocked")) $("#skipper-space").css("display", "inline");
+                            if ((!store.get("islocked")) && (!(store.get('disable-backing') === true && ((method === 2 ? store.get("disable-backing-special") === "rest" : store.get("disable-backing-special") === "work") || store.get("disable-backing-special") === "all")))) $("#skipper-space").css("display", "inline");
+                            else $("#skipper-space").css("display", "none");
+                        } else {
+                            $("#skipper-container").css("display", "none");
+                            $("#skipper-space").css("display", "none");
                         }
                         canStop = true;
                     });
@@ -601,34 +634,36 @@
 
             function themeChanger() {
                 if (method === 1) {
+                    isBothSkipperAndBackerEnabled = true;
                     if (store.get('disable-pausing') === true && (store.get("disable-pausing-special") === "rest" || store.get("disable-pausing-special") === "all")) {
                         $("#stopper").css("display", "none");
                     } else $("#stopper").css("display", "block");
                     if (store.get('disable-skipping') === true && (store.get("disable-skipping-special") === "rest" || store.get("disable-skipping-special") === "all")) {
-                        $("#skipper").css("display", "none");
-                        $("#skipper-space").css("display", "none");
+                        $("#skipper-container").css("display", "none");
+                        isBothSkipperAndBackerEnabled = false;
                     } else {
-                        $("#skipper").css("display", "block");
-                        $("#skipper-space").css("display", "block");
+                        $("#skipper-container").css("display", "inline");
                     }
                     if (store.get('disable-backing') === true && (store.get("disable-backing-special") === "rest" || store.get("disable-backing-special") === "all")) {
                         $("#back-index").css("display", "none");
-                        $("#skipper-space").css("display", "none");
+                        isBothSkipperAndBackerEnabled = false;
                     } else {
-                        $("#back-index").css("display", "block");
-                        $("#skipper-space").css("display", "block");
+                        $("#back-index").css("display", "inline-block");
                     }
+                    if (isBothSkipperAndBackerEnabled) $("#skipper-space").css("display", "inline");
+                    else $("#skipper-space").css("display", "none");
                     $("#only-one").css("display", "none");
-                    $(".work").addClass("rest");
+                    $(".work").addClass(isOnlyRest ? "onlyRest" : "rest");//onlyRest mode now has specific color
                     $(".work").removeClass("work");
-                    if (continueLoop) $("#work-rest").text(i18n.__('onlyrest'));
+                    if (isOnlyRest) $("#work-rest").text(i18n.__('onlyrest'));
+                    else if (isLongRest) $("#work-rest").html(i18n.__('longresting'));
                     else $("#work-rest").html(i18n.__('resting'));
-                    $bottomBar.css("background-color", "#5490ea99");
+                    $bottomBar.css("background-color", isOnlyRest ? "#a26ae599" : "#5490ea99");
                     method = 2;
                     timingData.set("last-recorded-state.method", 2);
                     if (restTimeFocused === true) {
                         if (styleCache.get("is-shadowless") !== true) $("html").css("border", "none");
-                        $bottomBar.css("background-color", "#5490ea19");
+                        $bottomBar.css("background-color", isOnlyRest ? "#a26ae519" : "#5490ea19");
                         $bottomBar.css("height", "100%");
                         $("#controller").css("display", "none");
                         $("#more-options").css("display", "none");
@@ -664,18 +699,14 @@
                         $("#stopper").css("display", "none");
                     } else $("#stopper").css("display", "block");
                     if (store.get('disable-skipping') === true && (store.get("disable-skipping-special") === "work" || store.get("disable-skipping-special") === "all")) {
-                        $("#skipper").css("display", "none");
-                        $("#skipper-space").css("display", "none");
+                        $("#skipper-container").css("display", "none");
                     } else {
-                        $("#skipper").css("display", "block");
-                        $("#skipper-space").css("display", "block");
+                        $("#skipper-container").css("display", "inline");
                     }
                     if (store.get('disable-backing') === true && (store.get("disable-backing-special") === "work" || store.get("disable-backing-special") === "all")) {
                         $("#back-index").css("display", "none");
-                        $("#skipper-space").css("display", "none");
                     } else {
-                        $("#back-index").css("display", "block");
-                        $("#skipper-space").css("display", "block");
+                        $("#back-index").css("display", "inline-block");
                     }
                     $("#only-one").css("display", "none");
                     $(".rest").addClass("work");
@@ -754,6 +785,8 @@
                 if (pausingTimeout) window.clearInterval(pausingTimeout);
                 if (continueLoop && method === 2) {
                     //if continueloop then only play once and no other thing
+                    let player = document.createElement('audio');
+                    amplifyMedia(player, amplifierList[store.get("sound")]);
                     player.src = path.join(__dirname, "\\res\\sound\\" + (store.has("time-end-sound") ? store.get("time-end-sound") : "tick") + ".mp3");
                     player.loop = false;
                     player.play();
@@ -762,7 +795,6 @@
                     $("#skipper-space").css("display", "none");
                     $("#passcode-rechecker").css("display", "none");
                     times++;
-                    timingData.set("last-recorded-times-left", times);
                     $("#time-cnt").text(Math.ceil((times + 1) / 2) + ' / ' + loop + ' ' + i18n.__('times'));
                 }
                 if (isClockWorking) {
@@ -770,6 +802,11 @@
                         startTime = new Date().getTime();
                     } else if (times < loop * 2 || loop === 0) {
                         startTime = new Date().getTime();
+                        if (times === loop * 2 - 1 && loop > 2) {//long break
+                            let long = longBreakGetter();
+                            restTime = restTime + long * 60000;
+                            isLongRest = true;
+                        }
                         themeChanger();
                     } else if (times === loop * 2) {
                         ender();
@@ -893,11 +930,11 @@
                             if ((method === 1 && workTimeFocused === false) || (method === 2 && restTimeFocused === false))
                                 ipc.send("only-one-min-left");
                             else {
-                                if (store.get("sound") !== false) {
-                                    player.src = path.join(__dirname, "\\res\\sound\\only-one.wav");
-                                    player.loop = false;
-                                    player.play();
-                                }
+                                let player = document.createElement('audio');
+                                amplifyMedia(player, amplifierList[store.get("sound") * 1.4]);
+                                player.src = path.join(__dirname, "\\res\\sound\\only-one.wav");
+                                player.loop = false;
+                                player.play();
                                 $("#only-one").css("display", "block");
                             }
                         }
