@@ -68,7 +68,7 @@
 
                 ipc.on("sync-title", function (event, message) {
                     $("#title").val(message.title);
-                    $("#notes").val(message.notes);
+                    $("#notes").text(message.notes);
 
                     titleNodeResizer();
                     notesNodeResizer();
@@ -226,6 +226,38 @@
     </div><!-- for things with 'work' mark, when it's resting, the color should be changed -->
     <div id="bottom-bar">&nbsp;</div>
 
+    <div id="fullscreen-custom-dialog" class="justify-content-left align-content-left text-left d-none">
+        <p class="small text-grey font-weight-bolder" style="margin-left: 0" id="dialog-title">wnr</p>
+        <p id="dialog-msg" class="small" style="line-height: 1.5; width: 210px; line-break: anywhere">Message</p>
+        <div id="dialog-buttons" style="width:210px" class="text-right">
+            <a type="button" id="dialog-ok" class="btn btn-outline-primary btn-sm text-right"
+               style="font-size: 12px"
+               href="javascript:fullscreenCustomDialog('off', '', '', '')">
+                <script>document.write(i18n.__('ok'))</script>
+            </a>
+        </div>
+    </div>
+
+    <script>
+        var executeAfterRecorder = "";
+
+        function fullscreenCustomDialog(mode, title, msg, executeAfter) {
+            if (mode === "on") {
+                $("#fullscreen-custom-dialog").removeClass("d-none");
+                $("#dialog-title").text(title);
+                $("#dialog-msg").text(msg);
+                executeAfterRecorder = executeAfter;
+            } else {
+                $("#fullscreen-custom-dialog").addClass("d-none");
+                ipc.send("eval", executeAfterRecorder);
+            }
+        }
+
+        ipc.on("fullscreen-custom-dialog", function (event, msg) {
+            fullscreenCustomDialog("on", msg.title, msg.message, msg.executeAfter);
+        })
+    </script>
+
     <script>
         function dynamicResizer() {//dynamically resize the countdown text as the window resizes
             let hdWidth = document.body.getBoundingClientRect().width;
@@ -256,6 +288,13 @@
         $("#only-one").css("display", "none");
         $("#passcode-rechecker").css("display", "none");
         store.set('just-launched', false);
+
+        if (store.has("timer-time")) {
+            if (!store.get("timer-time")) {
+                $("#time-bar-macos").css("opacity", 0);
+                $("#time-bar").css("opacity", 0);
+            }
+        }
 
         hasFloating = false;
         canOpenFloating = true;
@@ -309,6 +348,7 @@
         }
 
         function backcheck() {
+            if (hasSoonFinishTipPosted) return;// ban stopping after tip posted
             if (store.get("islocked")) $("#passcode-rechecker").css("display", "inline");
             else backer();
         }
@@ -389,7 +429,10 @@
                 pausingTimeout = null,
                 isLongRest = false,
                 isFirstTimeOnlyRest = decodeURI($_GET['work-time']) === "0.7777",
-                isOnlyRest = isFirstTimeOnlyRest;
+                isOnlyRest = isFirstTimeOnlyRest,
+                firstTimeDiscount = isNaN(decodeURI($_GET['discount'])) ? 0 : decodeURI($_GET['discount']) * 60000;
+
+        ipc.send("logger", firstTimeDiscount);
 
         if (isOnlyRest) ipc.send("enter-only-rest");
 
@@ -456,7 +499,7 @@
                 titleNodeResizer();
             }
             if (note) {
-                $("#notes").val(note);
+                $("#notes").text(note);
                 notesNodeResizer();
             }
             if (loop === 0 || method === 3 || continueLoop) {
@@ -519,7 +562,14 @@
                     lastNapSecond = 0,
                     canStop = true,
                     stopCounter = 0,
-                    isBothSkipperAndBackerEnabled = true;
+                    isBothSkipperAndBackerEnabled = true,
+                    soonFinishTipMethod = 0,
+                    hasSoonFinishTipPosted = false;
+
+            if (store.has("soon-finish-tip")) {
+                soonFinishTipMethodList = [0, 5, 7, 10, 15, 20];
+                soonFinishTipMethod = soonFinishTipMethodList[store.get("soon-finish-tip")];
+            }
 
             if (store.get("nap") || methodFromStart === 3) {
                 shouldNap = true;
@@ -536,11 +586,13 @@
                 startTime = new Date().getTime();
                 int = setInterval(positive, 250);
                 ipc.send("progress-bar-set", 2);
+                $("#infinity-label").css("display", "none");
             }
 
             if (methodFromStart === 2) skipper();
 
             ipc.on('start-or-stop', function () {
+                if (hasSoonFinishTipPosted) return;// ban stopping after tip posted
                 if (canStop) {
                     if (store.get("disable-pausing") === true && ((store.get("disable-pausing-special") === "work" && method === 1) || (store.get("disable-pausing-special") === "rest" && method === 2) || store.get("disable-pausing-special") === "all"))
                         ipc.send("alert", i18n.__('pausing-disabled'));
@@ -568,6 +620,8 @@
             });
 
             ipc.on('remote-control-msg', function (event, message) {
+                if (hasSoonFinishTipPosted) return;// ban stopping after tip posted
+
                 if (message === "skipper") skipper();
                 else if (message === "back") backcheck();
                 else if (message === "stop") stopper();
@@ -576,6 +630,8 @@
             });
 
             function stopAndCount() {
+                if (hasSoonFinishTipPosted) return;// ban stopping after tip posted
+
                 stopper();
                 if (!wasCounting) stopCounter++;
                 if (stopCounter) $("#stop-count").text(((method === 3 || continueLoop) ? "" : " | ") + i18n.__("already-paused") + " " + stopCounter.toString() + " " + i18n.__("time(s)"));
@@ -828,6 +884,7 @@
 
             function skipper() {
                 canOpenFloating = true;
+                hasSoonFinishTipPosted = false;
                 if (pausingTimeout) window.clearInterval(pausingTimeout);
                 if (continueLoop && method === 2) {
                     //if continueloop then only play once and no other thing
@@ -912,7 +969,8 @@
             function clock() {
                 nowTime = new Date();
                 tempVariable = nowTime.getTime();
-                if (method === 1) seconds = Math.floor((workTime - tempVariable + startTime) / 1000);
+                if (method === 1) seconds = Math.floor((workTime - tempVariable + startTime -
+                        (times === 0 ? firstTimeDiscount : 0)) / 1000);
                 else seconds = Math.floor((restTime - tempVariable + startTime) / 1000);
                 if (seconds > 0) {
                     if (method === 1) {
@@ -971,20 +1029,29 @@
                         timingData.set("last-recorded-minutes-left", lastRecordedMinutesLeft + 1);
                     }
 
-                    if (minutes === 0 && moreThanOneMin && hours === 0) {
-                        if (store.get("onemintip") !== false) {
-                            if ((method === 1 && workTimeFocused === false) || (method === 2 && restTimeFocused === false))
-                                ipc.send("only-one-min-left");
-                            else {
-                                let player = document.createElement('audio');
-                                amplifyMedia(player, amplifierList[store.get("sound") * 1.4]);
-                                player.src = path.join(__dirname, "\\res\\sound\\only-one.wav");
-                                player.loop = false;
-                                player.play();
-                                $("#only-one").css("display", "block");
+                    if (minutes === 0 && hours === 0) {
+                        if (moreThanOneMin) {
+                            if (store.get("onemintip") !== false) {
+                                if ((method === 1 && workTimeFocused === false) || (method === 2 && restTimeFocused === false))
+                                    ipc.send("only-one-min-left");
+                                else {
+                                    let player = document.createElement('audio');
+                                    amplifyMedia(player, amplifierList[store.get("sound") * 1.4]);
+                                    player.src = path.join(__dirname, "\\res\\sound\\only-one.wav");
+                                    player.loop = false;
+                                    player.play();
+                                    $("#only-one").css("display", "block");
+                                }
                             }
+                            moreThanOneMin = 0;
+                        } else if (seconds <= soonFinishTipMethod && !hasSoonFinishTipPosted) {
+                            if (!((method === 1 && workTimeFocused) || (method === 2 && restTimeFocused)))
+                                ipc.send("notify", {
+                                    title: i18n.__('soon-finish-tip-notification-title-1') + soonFinishTipMethod + i18n.__('soon-finish-tip-notification-title-2'),
+                                    msg: i18n.__('soon-finish-tip-notification-msg')
+                                });
+                            hasSoonFinishTipPosted = true;
                         }
-                        moreThanOneMin = 0;
                     }
                 } else {
                     skipper();

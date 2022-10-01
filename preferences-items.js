@@ -58,6 +58,10 @@ if (store.get("islocked") !== true) {
             }]
         }, {
             type: "selection",
+            id: "timer-time",
+            def: true
+        }, {
+            type: "selection",
             id: "infinity"
         }, {
             type: "dropdown",
@@ -106,6 +110,11 @@ if (store.get("islocked") !== true) {
             type: "selection",
             id: "onemintip",
             def: true
+        }, {
+            type: "dropdown",
+            id: "soon-finish-tip",
+            choices: ['never', '5s', '7s', '10s', '15s', '20s'],
+            def: 0
         }, {
             type: "dropdown",
             id: "nap-in-timing",
